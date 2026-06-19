@@ -35,3 +35,6 @@ Needed Cloudflare secrets:
 For a first smoke test, a generated access token can prove the Worker can read
 one PDF. That token should be treated as temporary because Dropbox access tokens
 expire.
+
+The local helper script `scripts/dropbox-refresh-token-helper.sh` walks through
+this flow without committing secrets.
