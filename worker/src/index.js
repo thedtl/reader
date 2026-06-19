@@ -1,9 +1,12 @@
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
+const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
 };
+
+let cachedDropboxAccessToken = null;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -130,10 +133,10 @@ async function handlePdfRequest(request, env) {
 }
 
 async function proxyDropboxPdf(request, env, dropboxRef) {
-  requireEnv(env, "DROPBOX_ACCESS_TOKEN");
+  const accessToken = await getDropboxAccessToken(env);
 
   const dropboxHeaders = new Headers({
-    authorization: `Bearer ${env.DROPBOX_ACCESS_TOKEN}`,
+    authorization: `Bearer ${accessToken}`,
     "dropbox-api-arg": JSON.stringify({ path: dropboxRef }),
   });
 
@@ -176,6 +179,51 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
     status: dropboxResponse.status,
     headers,
   });
+}
+
+async function getDropboxAccessToken(env) {
+  if (env.DROPBOX_ACCESS_TOKEN) {
+    return env.DROPBOX_ACCESS_TOKEN;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedDropboxAccessToken && cachedDropboxAccessToken.expiresAt > now + 60) {
+    return cachedDropboxAccessToken.token;
+  }
+
+  requireEnv(env, "DROPBOX_REFRESH_TOKEN");
+  requireEnv(env, "DROPBOX_APP_KEY");
+  requireEnv(env, "DROPBOX_APP_SECRET");
+
+  const response = await fetch(DROPBOX_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: env.DROPBOX_REFRESH_TOKEN,
+      client_id: env.DROPBOX_APP_KEY,
+      client_secret: env.DROPBOX_APP_SECRET,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new HttpError(502, `Dropbox token refresh failed: ${details.slice(0, 300)}`);
+  }
+
+  const tokenData = await response.json();
+  if (!tokenData.access_token) {
+    throw new HttpError(502, "Dropbox token refresh response did not include an access token");
+  }
+
+  cachedDropboxAccessToken = {
+    token: tokenData.access_token,
+    expiresAt: now + Number(tokenData.expires_in || 14400),
+  };
+
+  return cachedDropboxAccessToken.token;
 }
 
 function buildPayload(input) {

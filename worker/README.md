@@ -9,9 +9,15 @@ proxies PDF bytes from Dropbox to PDF.js.
 
 Set these as Worker secrets, not as committed files:
 
-- `DROPBOX_ACCESS_TOKEN`: Dropbox API token with file read access.
+- `DROPBOX_REFRESH_TOKEN`: durable Dropbox refresh token for server-side access.
+- `DROPBOX_APP_KEY`: Dropbox app key.
+- `DROPBOX_APP_SECRET`: Dropbox app secret.
 - `TOKEN_SECRET`: long random string used to sign patron links.
 - `STAFF_PASSWORD`: staff-only password for link generation routes.
+
+For a quick short-lived smoke test only, `DROPBOX_ACCESS_TOKEN` can be used
+instead of the three Dropbox refresh-token secrets. The refresh-token setup is
+preferred because Dropbox access tokens expire.
 
 ## Routes
 
@@ -36,7 +42,9 @@ node --check worker/src/index.js
 Do not deploy until the Dropbox app and secrets are ready.
 
 ```sh
-wrangler secret put DROPBOX_ACCESS_TOKEN
+wrangler secret put DROPBOX_REFRESH_TOKEN
+wrangler secret put DROPBOX_APP_KEY
+wrangler secret put DROPBOX_APP_SECRET
 wrangler secret put TOKEN_SECRET
 wrangler secret put STAFF_PASSWORD
 wrangler deploy

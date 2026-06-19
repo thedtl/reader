@@ -10,8 +10,7 @@ Goal: create a Dropbox app/token that lets the Worker read PDFs server-side.
 Needed later:
 
 - Dropbox app with file read permission.
-- A Dropbox access token or refresh-token setup suitable for the account that
-  owns the PDFs.
+- A Dropbox refresh-token setup suitable for the account that owns the PDFs.
 - A test PDF file reference, preferably a Dropbox API file ID such as `id:...`
   or a path such as `/Folder/Book.pdf`.
 
@@ -24,12 +23,18 @@ Goal: store secrets in Cloudflare and deploy the lab Worker.
 
 Needed later:
 
-- `DROPBOX_ACCESS_TOKEN`
+- `DROPBOX_REFRESH_TOKEN`
+- `DROPBOX_APP_KEY`
+- `DROPBOX_APP_SECRET`
 - `TOKEN_SECRET`
 - `STAFF_PASSWORD`
 
 These should be set with `wrangler secret put ...` or through the Cloudflare
 dashboard's Worker secret settings.
+
+For a quick smoke test only, the Worker can use `DROPBOX_ACCESS_TOKEN` instead
+of the three Dropbox refresh-token secrets. The refresh-token setup is preferred
+because Dropbox access tokens expire.
 
 ## First live test
 

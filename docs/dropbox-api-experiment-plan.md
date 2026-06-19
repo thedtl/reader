@@ -86,6 +86,8 @@ The `worker/` folder contains the first Track A scaffold:
 - `worker/src/index.js` signs chapter tokens and validates them before touching
   Dropbox.
 - `worker/src/index.js` proxies Dropbox PDF bytes through the Dropbox API.
+- `worker/src/index.js` supports Dropbox refresh-token secrets so the Worker can
+  keep operating after short-lived Dropbox access tokens expire.
 - `worker/wrangler.toml` defines a Cloudflare Worker that can be deployed later.
 
 The first scaffold intentionally rejects browser-style Dropbox shared links in
