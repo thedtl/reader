@@ -185,6 +185,28 @@
       const viewerUrl = new URL("web/viewer.html", location.href);
       viewerUrl.searchParams.set("file", pdfUrl);
 
+      showStatus("Checking that Dropbox will send the PDF...");
+      const pdfResponse = await fetch(pdfUrl, {
+        headers: {
+          range: "bytes=0-0",
+        },
+      });
+      if (!pdfResponse.ok && pdfResponse.status !== 206) {
+        const text = await pdfResponse.text();
+        let message = text;
+        try {
+          const errorData = JSON.parse(text);
+          message = [
+            errorData.error,
+            errorData.status ? "Dropbox status: " + errorData.status : "",
+            errorData.hint,
+            errorData.details,
+          ].filter(Boolean).join(" ");
+        } catch {}
+        showStatus(message || "Dropbox did not send the PDF.", "error");
+        return;
+      }
+
       readerLink.href = viewerUrl.toString();
       resultEl.classList.remove("hidden");
       showStatus("Signed test link created.", "ok");

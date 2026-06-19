@@ -153,11 +153,17 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
 
   if (!dropboxResponse.ok && dropboxResponse.status !== 206 && dropboxResponse.status !== 416) {
     const details = await dropboxResponse.text().catch(() => "");
+    const safeDetails = summarizeDropboxError(details);
+    console.warn("Dropbox download failed", {
+      status: dropboxResponse.status,
+      details: safeDetails,
+    });
     return json(
       {
         error: "Dropbox download failed",
         status: dropboxResponse.status,
-        details: details.slice(0, 500),
+        details: safeDetails,
+        hint: dropboxErrorHint(safeDetails),
       },
       request,
       env,
@@ -288,6 +294,26 @@ function dropboxDownloadArg(dropboxRef) {
 
 function isDropboxSharedLink(dropboxRef) {
   return /^https?:\/\/([^/]+\.)?dropbox\.com\//i.test(dropboxRef);
+}
+
+function summarizeDropboxError(details) {
+  return String(details || "")
+    .replace(/https?:\/\/[^\s"']*dropbox[^\s"']*/gi, "[dropbox-link]")
+    .slice(0, 500);
+}
+
+function dropboxErrorHint(details) {
+  const text = String(details || "").toLowerCase();
+  if (text.includes("missing_scope") || text.includes("sharing.read")) {
+    return "The Dropbox app needs the sharing.read permission, then the refresh token must be recreated.";
+  }
+  if (text.includes("shared_link")) {
+    return "The shared link route failed. For no-download PDFs, use the file path or file ID inside the authorized Dropbox account.";
+  }
+  if (text.includes("not_found") || text.includes("path/not_found")) {
+    return "Dropbox could not find this file through the current app access. Check that the app was authorized against the Dropbox account that owns the PDF.";
+  }
+  return "Use the Dropbox error details to decide the next setup step.";
 }
 
 function parsePositiveInteger(value, label) {
