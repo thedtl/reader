@@ -27,9 +27,12 @@ preferred because Dropbox access tokens expire.
 - `GET /analyze?password=...&dropbox=...`
 - `GET /?token=...`
 
-For the first proof of concept, `dropbox` should be a Dropbox API file
-reference such as `/Folder/Book.pdf` or `id:...`. Do not put Dropbox API tokens
-or secrets in the browser-facing reader.
+For the first proof of concept, `dropbox` can be a Dropbox API file reference
+such as `/Folder/Book.pdf` or `id:...`, or a Dropbox shared link. Shared links
+require the Dropbox app permission `sharing.read`.
+
+Do not put Dropbox API tokens or secrets in the browser-facing reader. Signed
+reader tokens keep the Dropbox file reference encrypted.
 
 ## Local check
 

@@ -1,4 +1,5 @@
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
+const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
 const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 
 const JSON_HEADERS = {
@@ -137,7 +138,7 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
 
   const dropboxHeaders = new Headers({
     authorization: `Bearer ${accessToken}`,
-    "dropbox-api-arg": JSON.stringify({ path: dropboxRef }),
+    "dropbox-api-arg": JSON.stringify(dropboxDownloadArg(dropboxRef)),
   });
 
   const range = request.headers.get("range");
@@ -145,7 +146,7 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
     dropboxHeaders.set("range", range);
   }
 
-  const dropboxResponse = await fetch(DROPBOX_DOWNLOAD_URL, {
+  const dropboxResponse = await fetch(dropboxDownloadUrl(dropboxRef), {
     method: "POST",
     headers: dropboxHeaders,
   });
@@ -261,14 +262,32 @@ function normalizeDropboxRef(value) {
   }
 
   if (/^https?:\/\//i.test(ref)) {
-    throw new HttpError(400, "Use a Dropbox API file path or id, not a browser shared link");
+    try {
+      const url = new URL(ref);
+      if (url.hostname === "dropbox.com" || url.hostname.endsWith(".dropbox.com")) {
+        return ref;
+      }
+    } catch {}
+    throw new HttpError(400, "Dropbox URL must be a dropbox.com shared link");
   }
 
   if (ref.startsWith("/") || ref.startsWith("id:") || ref.startsWith("rev:")) {
     return ref;
   }
 
-  throw new HttpError(400, "Dropbox reference must start with /, id:, or rev:");
+  throw new HttpError(400, "Dropbox reference must be a shared link, /path, id:, or rev:");
+}
+
+function dropboxDownloadUrl(dropboxRef) {
+  return isDropboxSharedLink(dropboxRef) ? DROPBOX_SHARED_LINK_FILE_URL : DROPBOX_DOWNLOAD_URL;
+}
+
+function dropboxDownloadArg(dropboxRef) {
+  return isDropboxSharedLink(dropboxRef) ? { url: dropboxRef } : { path: dropboxRef };
+}
+
+function isDropboxSharedLink(dropboxRef) {
+  return /^https?:\/\/([^/]+\.)?dropbox\.com\//i.test(dropboxRef);
 }
 
 function parsePositiveInteger(value, label) {
@@ -313,7 +332,12 @@ function requireEnv(env, key) {
 
 async function signToken(payload, env) {
   requireEnv(env, "TOKEN_SECRET");
-  const encodedPayload = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(payload)));
+  const tokenPayload = { ...payload };
+  if (tokenPayload.dbx) {
+    tokenPayload.p = await encryptPrivatePayload({ dbx: tokenPayload.dbx }, env);
+    delete tokenPayload.dbx;
+  }
+  const encodedPayload = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(tokenPayload)));
   const signature = await hmacSign(encodedPayload, env.TOKEN_SECRET);
   return `${encodedPayload}.${base64UrlEncodeBytes(signature)}`;
 }
@@ -344,10 +368,43 @@ async function verifyToken(token, env) {
   } catch {
     throw new HttpError(401, "Invalid token payload");
   }
-  normalizeDropboxRef(payload.dbx);
   parsePositiveInteger(payload.s, "start");
   parsePositiveInteger(payload.e, "end");
+  if (payload.p) {
+    const privatePayload = await decryptPrivatePayload(payload.p, env);
+    payload.dbx = privatePayload.dbx;
+  }
+  payload.dbx = normalizeDropboxRef(payload.dbx);
   return payload;
+}
+
+async function encryptPrivatePayload(payload, env) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await aesKey(env.TOKEN_SECRET);
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext));
+  const combined = new Uint8Array(iv.length + ciphertext.length);
+  combined.set(iv, 0);
+  combined.set(ciphertext, iv.length);
+  return base64UrlEncodeBytes(combined);
+}
+
+async function decryptPrivatePayload(value, env) {
+  try {
+    const combined = base64UrlDecodeToBytes(value);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const key = await aesKey(env.TOKEN_SECRET);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    return JSON.parse(new TextDecoder().decode(plaintext));
+  } catch {
+    throw new HttpError(401, "Invalid private token payload");
+  }
+}
+
+async function aesKey(secret) {
+  const secretHash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return crypto.subtle.importKey("raw", secretHash, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 async function hmacSign(message, secret) {

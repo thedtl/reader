@@ -18,6 +18,8 @@ Cloudflare Worker secrets when we reach that step.
 6. In the app's Permissions tab, enable read-only file access:
    - `files.content.read`
    - `files.metadata.read`
+   - `sharing.read` if you want to use Dropbox shared links instead of file
+     paths.
 7. Save/submit the permission changes.
 
 ## Token setup

@@ -103,7 +103,7 @@
     <p>This page creates a test reader link using the lab Cloudflare Worker. It does not save your staff password.</p>
 
     <section>
-      <p class="note">For the simplest first test, put a small PDF in the top level of Dropbox named <code>dtl-test.pdf</code>. Then the Dropbox path is <code>/dtl-test.pdf</code>.</p>
+      <p class="note">For this test, paste either a Dropbox shared link or a Dropbox file path such as <code>/Folder/Book.pdf</code>.</p>
 
       <label for="workerUrl">Worker URL</label>
       <input id="workerUrl" value="https://dtl-chapter-reader-dropbox-lab.ccrawford.workers.dev">
@@ -111,8 +111,8 @@
       <label for="staffPassword">Staff password</label>
       <input id="staffPassword" type="password" autocomplete="off">
 
-      <label for="dropboxPath">Dropbox file path</label>
-      <input id="dropboxPath" value="/dtl-test.pdf" spellcheck="false">
+      <label for="dropboxPath">Dropbox shared link or file path</label>
+      <input id="dropboxPath" placeholder="Paste your Dropbox PDF link here" spellcheck="false">
 
       <div class="row">
         <div>
