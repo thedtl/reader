@@ -223,7 +223,6 @@ async function proxyChapterPdf(request, env, payload) {
     chapterPdf.addPage(page);
   }
   chapterPdf.setTitle(String(payload.c || "Chapter"));
-  chapterPdf.setProducer("DTL Dropbox chapter reader lab");
   const chapterBytes = await chapterPdf.save();
 
   const headers = corsHeaders(request, env);
@@ -500,7 +499,7 @@ function validatePdfRequestSource(request, env) {
     } catch {}
   }
 
-  return "This chapter link must be opened from the DTL chapter reader";
+  return "This chapter link must be opened from the approved chapter reader";
 }
 
 function allowedPdfRequestOrigins(env) {
