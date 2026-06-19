@@ -14,3 +14,4 @@ See `docs/dropbox-api-experiment-plan.md` before changing implementation code.
 - `web/` and `build/`: copied PDF.js reader snapshot from the live repo.
 - `docs/dropbox-api-experiment-plan.md`: security and performance plan.
 - `worker/`: Cloudflare Worker scaffold for server-side Dropbox API access.
+- `lab-test.html`: local test page for creating a Dropbox-backed reader link.
