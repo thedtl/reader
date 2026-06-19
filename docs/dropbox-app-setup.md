@@ -38,3 +38,11 @@ expire.
 
 The local helper script `scripts/dropbox-refresh-token-helper.sh` walks through
 this flow without committing secrets.
+
+For a browser-based local setup, run:
+
+```sh
+node scripts/dropbox-token-wizard/server.js
+```
+
+Then open `http://127.0.0.1:8789/`.
