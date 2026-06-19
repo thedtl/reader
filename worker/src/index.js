@@ -1,4 +1,5 @@
 import { PDFDocument } from "pdf-lib";
+import { handleSuggestHeading } from "./heading-suggestion.js";
 
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
@@ -57,6 +58,13 @@ export default {
 
       if (url.pathname === "/analyze" && (request.method === "GET" || request.method === "HEAD")) {
         return await handleAnalyze(request, env);
+      }
+
+      if (url.pathname === "/suggest-heading" && request.method === "POST") {
+        return await handleSuggestHeading(request, env, {
+          json,
+          requireStaffPasswordValue,
+        });
       }
 
       if (url.pathname === "/reader-session" && request.method === "GET") {
