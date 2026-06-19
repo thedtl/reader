@@ -1,5 +1,6 @@
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
+const DROPBOX_SHARED_LINK_METADATA_URL = "https://api.dropboxapi.com/2/sharing/get_shared_link_metadata";
 const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 
 const JSON_HEADERS = {
@@ -135,21 +136,8 @@ async function handlePdfRequest(request, env) {
 
 async function proxyDropboxPdf(request, env, dropboxRef) {
   const accessToken = await getDropboxAccessToken(env);
-
-  const dropboxHeaders = new Headers({
-    authorization: `Bearer ${accessToken}`,
-    "dropbox-api-arg": JSON.stringify(dropboxDownloadArg(dropboxRef)),
-  });
-
-  const range = request.headers.get("range");
-  if (range) {
-    dropboxHeaders.set("range", range);
-  }
-
-  const dropboxResponse = await fetch(dropboxDownloadUrl(dropboxRef), {
-    method: "POST",
-    headers: dropboxHeaders,
-  });
+  const downloadRef = await resolveDropboxRefForDownload(accessToken, dropboxRef);
+  const dropboxResponse = await fetchDropboxPdf(request, accessToken, downloadRef);
 
   if (!dropboxResponse.ok && dropboxResponse.status !== 206 && dropboxResponse.status !== 416) {
     const details = await dropboxResponse.text().catch(() => "");
@@ -186,6 +174,73 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
     status: dropboxResponse.status,
     headers,
   });
+}
+
+async function fetchDropboxPdf(request, accessToken, dropboxRef) {
+  const dropboxHeaders = new Headers({
+    authorization: `Bearer ${accessToken}`,
+    "dropbox-api-arg": JSON.stringify(dropboxDownloadArg(dropboxRef)),
+  });
+
+  const range = request.headers.get("range");
+  if (range) {
+    dropboxHeaders.set("range", range);
+  }
+
+  return fetch(dropboxDownloadUrl(dropboxRef), {
+    method: "POST",
+    headers: dropboxHeaders,
+  });
+}
+
+async function resolveDropboxRefForDownload(accessToken, dropboxRef) {
+  if (!isDropboxSharedLink(dropboxRef)) {
+    return dropboxRef;
+  }
+
+  const metadata = await getSharedLinkMetadata(accessToken, dropboxRef);
+  const fileRef = metadata.id || metadata.path_lower || metadata.path_display;
+  if (!fileRef) {
+    console.warn("Dropbox shared link metadata had no downloadable file reference", {
+      tag: metadata[".tag"] || null,
+      name: metadata.name || null,
+    });
+    return dropboxRef;
+  }
+  return fileRef;
+}
+
+async function getSharedLinkMetadata(accessToken, sharedLink) {
+  const response = await fetch(DROPBOX_SHARED_LINK_METADATA_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ url: sharedLink }),
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text || "{}");
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const safeDetails = summarizeDropboxError(text);
+    console.warn("Dropbox shared link metadata failed", {
+      status: response.status,
+      details: safeDetails,
+    });
+    throw new HttpError(
+      502,
+      `Dropbox shared link metadata failed: ${dropboxErrorHint(safeDetails)} ${safeDetails}`,
+    );
+  }
+
+  return data || {};
 }
 
 async function getDropboxAccessToken(env) {
