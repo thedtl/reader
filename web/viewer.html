@@ -1225,6 +1225,44 @@ See https://github.com/adobe-type-tools/cmap-resources
             showErrorPage('🔐', 'Invalid Access Token', 'This secure viewing link is missing or invalid. Please return to the chapter list and open the resource again.');
             throw new Error("Access Denied: Missing or invalid token");
         }
+
+        window.DTL_prepareReaderFileUrl = async function(fileUrl) {
+            if (!token) {
+                return fileUrl;
+            }
+
+            var pdfUrl;
+            try {
+                pdfUrl = new URL(fileUrl, location.href);
+            } catch (e) {
+                return fileUrl;
+            }
+
+            if (!pdfUrl.searchParams.get('token')) {
+                return fileUrl;
+            }
+
+            try {
+                var sessionUrl = new URL('/reader-session', pdfUrl.origin);
+                sessionUrl.searchParams.set('token', token);
+
+                var response = await fetch(sessionUrl.toString(), {
+                    method: 'GET',
+                    cache: 'no-store',
+                    credentials: 'omit'
+                });
+                var data = await response.json().catch(function() { return {}; });
+                if (!response.ok || !data.session) {
+                    throw new Error(data.error || 'The reading session could not be started.');
+                }
+
+                pdfUrl.searchParams.set('session', data.session);
+                return pdfUrl.toString();
+            } catch (e) {
+                showErrorPage('🔐', 'Reader Session Needed', e.message || 'Please return to the chapter list and open this chapter again.');
+                throw e;
+            }
+        };
         
         // Store config globally
         window.DTL_CHAPTER = {

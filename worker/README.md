@@ -31,8 +31,10 @@ preferred because Dropbox access tokens expire.
 - `GET /sign?password=...&dropbox=...&start=1&end=10&chapter=...`
 - `POST /batch-sign`
 - `GET /analyze?password=...&dropbox=...`
+- `GET /reader-session?token=...` returns a short-lived reader session for the
+  approved PDF.js viewer.
 - `GET /?token=...` returns a temporary PDF containing only the token's page
-  range.
+  range. Patron PDF requests must include a valid `session=...` value.
 
 For the first proof of concept, `dropbox` can be a Dropbox API file reference
 such as `/Folder/Book.pdf` or `id:...`, or a Dropbox shared link. Shared links
@@ -45,9 +47,11 @@ Staff bookmark extraction can still use `/analyze` to let PDF.js inspect the
 original bookmarked PDF. Patron links use `/?token=...`, which assembles a
 chapter-only PDF before sending bytes to the browser.
 
-To make copied URLs harder to reuse, tokenized PDF requests must come from an
-allowed reader origin. A raw Worker URL pasted into a new tab should fail even
-when the token itself is valid.
+To make copied URLs harder to reuse, the long-lived chapter token is not enough
+to fetch PDF bytes. The PDF.js viewer first asks `/reader-session` for a
+short-lived session, then PDF.js uses `/?token=...&session=...` internally.
+Tokenized PDF requests must also come from an allowed reader origin. A raw Worker
+URL pasted into a new tab should fail even when the token itself is valid.
 
 For patron tokens, the original source page range is encrypted in the private
 token payload. The public token range is rewritten to `1..chapter length` so the

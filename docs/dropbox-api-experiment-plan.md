@@ -37,9 +37,10 @@ Cloudflare Worker, with Dropbox credentials stored as Worker secrets.
    - the allowed chapter end page,
    - download policy.
 3. The patron opens the static PDF.js reader.
-4. The reader requests content from the Worker, not from Dropbox directly.
-5. The Worker validates the token before contacting Dropbox.
-6. The Worker uses the Dropbox API to fetch only what the current design allows.
+4. The reader asks the Worker for a short-lived reader session.
+5. PDF.js requests content from the Worker, not from Dropbox directly.
+6. The Worker validates the token and reader session before contacting Dropbox.
+7. The Worker uses the Dropbox API to fetch only what the current design allows.
 
 This keeps PDF.js and streams the PDF through the Worker with HTTP Range support.
 It should improve initial load time for large PDFs when the source PDF and
@@ -80,5 +81,6 @@ or `id:...`, and can also resolve Dropbox shared links server-side when the
 Dropbox app has `sharing.read`.
 
 The lab now keeps the simpler chapter-only PDF approach. The Worker also checks
-that patron PDF requests come from the approved PDF.js reader origin, so copying
-the raw Worker URL should not be useful by itself.
+that patron PDF requests come from the approved PDF.js reader origin and include
+a short-lived reader session, so copying the raw Worker URL should not be useful
+by itself.

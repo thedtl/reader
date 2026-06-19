@@ -4,6 +4,7 @@ const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
 const DROPBOX_SHARED_LINK_METADATA_URL = "https://api.dropboxapi.com/2/sharing/get_shared_link_metadata";
 const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
+const READER_SESSION_TTL_SECONDS = 10 * 60;
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -56,6 +57,10 @@ export default {
 
       if (url.pathname === "/analyze" && (request.method === "GET" || request.method === "HEAD")) {
         return await handleAnalyze(request, env);
+      }
+
+      if (url.pathname === "/reader-session" && request.method === "GET") {
+        return await handleReaderSession(request, env);
       }
 
       if (request.method === "GET" || request.method === "HEAD") {
@@ -134,6 +139,31 @@ async function handleAnalyze(request, env) {
   return proxyDropboxPdf(request, env, dropboxRef);
 }
 
+async function handleReaderSession(request, env) {
+  const sourceError = validatePdfRequestSource(request, env);
+  if (sourceError) {
+    return json({ error: sourceError }, request, env, 403);
+  }
+
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) {
+    return json({ error: "Missing token" }, request, env, 401);
+  }
+
+  const payload = await verifyToken(token, env);
+  requirePdfPayload(payload);
+  if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+    return json({ error: "Token expired" }, request, env, 401);
+  }
+
+  const session = await signReaderSession(token, request, env);
+  return json({
+    session,
+    expiresIn: READER_SESSION_TTL_SECONDS,
+  }, request, env);
+}
+
 async function handlePdfRequest(request, env) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
@@ -147,10 +177,12 @@ async function handlePdfRequest(request, env) {
   }
 
   const payload = await verifyToken(token, env);
+  requirePdfPayload(payload);
   if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
     return json({ error: "Token expired" }, request, env, 401);
   }
 
+  await verifyReaderSession(url.searchParams.get("session"), token, request, env);
   return proxyChapterPdf(request, env, payload);
 }
 
@@ -231,6 +263,7 @@ async function proxyChapterPdf(request, env, payload) {
   headers.set("cache-control", "private, no-store");
   headers.set("accept-ranges", "none");
   headers.set("x-dtl-restriction-mode", "chapter-only-pdf");
+  headers.set("x-dtl-reader-session", "required");
   headers.set("x-dtl-source-pages", String(pageCount));
   headers.set("x-dtl-chapter-pages", `${startPage}-${endPage}`);
   headers.set("x-dtl-chapter-page-count", String(pageIndexes.length));
@@ -397,10 +430,8 @@ function buildPayload(input) {
     iat: now,
   };
 
-  if (mode === "image") {
-    payload.m = "image";
-  } else if (mode !== "pdf") {
-    throw new HttpError(400, "mode must be pdf or image");
+  if (mode !== "pdf") {
+    throw new HttpError(400, "mode must be pdf");
   }
 
   const expiresMinutes = Number(input.expires || 0);
@@ -472,6 +503,12 @@ function parsePositiveInteger(value, label) {
     throw new HttpError(400, `${label} must be a positive whole number`);
   }
   return number;
+}
+
+function requirePdfPayload(payload) {
+  if (payload.m && payload.m !== "pdf") {
+    throw new HttpError(400, "This token is not a PDF reader token");
+  }
 }
 
 function validatePdfRequestSource(request, env) {
@@ -557,6 +594,65 @@ async function signToken(payload, env) {
   const encodedPayload = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(tokenPayload)));
   const signature = await hmacSign(encodedPayload, env.TOKEN_SECRET);
   return `${encodedPayload}.${base64UrlEncodeBytes(signature)}`;
+}
+
+async function signReaderSession(token, request, env) {
+  requireEnv(env, "TOKEN_SECRET");
+
+  const now = Math.floor(Date.now() / 1000);
+  const sessionPayload = {
+    v: 1,
+    typ: "reader-session",
+    th: await sha256Base64Url(token),
+    uh: await sha256Base64Url(request.headers.get("user-agent") || ""),
+    iat: now,
+    exp: now + READER_SESSION_TTL_SECONDS,
+  };
+  const encodedPayload = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(sessionPayload)));
+  const signature = await hmacSign(`reader-session.${encodedPayload}`, env.TOKEN_SECRET);
+  return `${encodedPayload}.${base64UrlEncodeBytes(signature)}`;
+}
+
+async function verifyReaderSession(session, token, request, env) {
+  requireEnv(env, "TOKEN_SECRET");
+  if (!session) {
+    throw new HttpError(401, "Missing reader session");
+  }
+
+  const parts = session.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new HttpError(401, "Invalid reader session");
+  }
+
+  let provided;
+  try {
+    provided = base64UrlDecodeToBytes(parts[1]);
+  } catch {
+    throw new HttpError(401, "Invalid reader session");
+  }
+
+  const verified = await hmacVerify(`reader-session.${parts[0]}`, env.TOKEN_SECRET, provided);
+  if (!verified) {
+    throw new HttpError(401, "Invalid reader session");
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[0])));
+  } catch {
+    throw new HttpError(401, "Invalid reader session");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.typ !== "reader-session" || !payload.exp || payload.exp < now) {
+    throw new HttpError(401, "Reader session expired");
+  }
+  if (payload.th !== await sha256Base64Url(token)) {
+    throw new HttpError(401, "Reader session does not match this chapter link");
+  }
+  if (payload.uh !== await sha256Base64Url(request.headers.get("user-agent") || "")) {
+    throw new HttpError(401, "Reader session does not match this browser");
+  }
 }
 
 async function verifyToken(token, env) {
@@ -651,6 +747,11 @@ async function hmacVerify(message, secret, providedSignature) {
     ["verify"],
   );
   return crypto.subtle.verify("HMAC", key, providedSignature, new TextEncoder().encode(message));
+}
+
+async function sha256Base64Url(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value)));
+  return base64UrlEncodeBytes(new Uint8Array(digest));
 }
 
 function base64UrlEncodeBytes(bytes) {

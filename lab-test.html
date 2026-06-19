@@ -183,6 +183,17 @@
       const chapterPdfUrl = new URL(workerUrl + "/");
       chapterPdfUrl.searchParams.set("token", data.token);
 
+      showStatus("Starting a short reader session...");
+      const sessionUrl = new URL(workerUrl + "/reader-session");
+      sessionUrl.searchParams.set("token", data.token);
+      const sessionResponse = await fetch(sessionUrl);
+      const sessionData = await sessionResponse.json().catch(() => ({}));
+      if (!sessionResponse.ok || !sessionData.session) {
+        showStatus(sessionData.error || "The Worker did not start a reader session.", "error");
+        return;
+      }
+      chapterPdfUrl.searchParams.set("session", sessionData.session);
+
       showStatus("Checking that the Worker can return a chapter-only PDF...");
       const pdfResponse = await fetch(chapterPdfUrl, {
         headers: { range: "bytes=0-1023" },
@@ -203,7 +214,9 @@
       }
 
       const viewerUrl = new URL("web/viewer.html", location.href);
-      viewerUrl.searchParams.set("file", chapterPdfUrl.toString());
+      const viewerPdfUrl = new URL(workerUrl + "/");
+      viewerPdfUrl.searchParams.set("token", data.token);
+      viewerUrl.searchParams.set("file", viewerPdfUrl.toString());
 
       readerLink.href = viewerUrl.toString();
       resultEl.classList.remove("hidden");

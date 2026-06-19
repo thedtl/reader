@@ -16584,6 +16584,9 @@ const PDFViewerApplication = {
     } catch {
       file = encodeURIComponent(file).replaceAll("%2F", "/");
     }
+    if (window.DTL_prepareReaderFileUrl) {
+      file = await window.DTL_prepareReaderFileUrl(file);
+    }
     validateFileURL(file);
     const fileInput = this._openFileInput = document.createElement("input");
     fileInput.id = "fileInput";

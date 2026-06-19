@@ -45,13 +45,15 @@ After secrets are set:
 3. Open the lab PDF.js viewer with `file=` pointed at the lab Worker URL.
 4. Confirm the PDF loads and the Worker response header says
    `x-dtl-restriction-mode: chapter-only-pdf`.
-5. Confirm browser network requests do not show a Dropbox API token.
-6. Confirm browser network requests do not show a Dropbox shared link.
-7. Confirm the browser receives only the selected chapter pages, not the full
+5. Confirm the Worker response header says `x-dtl-reader-session: required`.
+6. Confirm browser network requests do not show a Dropbox API token.
+7. Confirm browser network requests do not show a Dropbox shared link.
+8. Confirm the browser receives only the selected chapter pages, not the full
    source PDF page count.
-8. Confirm the raw Worker PDF URL fails when opened directly, without the
+9. Confirm the raw Worker PDF URL fails when opened directly, without the
    approved PDF.js viewer as the request source.
-9. Compare large-PDF load behavior with the live reader.
+10. Confirm the raw Worker PDF URL also fails without a fresh `session=...`.
+11. Compare large-PDF load behavior with the live reader.
 
 ## Important limitation
 
@@ -60,4 +62,5 @@ stronger restriction than simply hiding PDF.js buttons.
 
 This still sends PDF bytes for the selected chapter to the browser. The current
 protection goal is to make copied URLs hard to reuse by combining the customized
-PDF.js viewer restrictions with a Worker-side allowed-source check.
+PDF.js viewer restrictions, a short-lived reader session, and a Worker-side
+allowed-source check.
