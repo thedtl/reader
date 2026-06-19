@@ -39,6 +39,11 @@ Staff bookmark extraction can still use `/analyze` to let PDF.js inspect the
 original bookmarked PDF. Patron links should use `/?token=...`, which assembles a
 chapter-only PDF before sending bytes to the browser.
 
+For patron tokens, the original source page range is encrypted in the private
+token payload. The public token range is rewritten to `1..chapter length` so the
+reader works against the temporary chapter-only PDF, not the source PDF's page
+numbers.
+
 ## Local check
 
 ```sh

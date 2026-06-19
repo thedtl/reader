@@ -192,8 +192,8 @@ async function proxyChapterPdf(request, env, payload) {
     ignoreEncryption: true,
   });
   const pageCount = sourcePdf.getPageCount();
-  const startPage = Math.max(1, Math.min(payload.s, pageCount));
-  const endPage = Math.max(startPage, Math.min(payload.e, pageCount));
+  const startPage = Math.max(1, Math.min(payload.ss, pageCount));
+  const endPage = Math.max(startPage, Math.min(payload.se, pageCount));
   const pageIndexes = [];
   for (let page = startPage; page <= endPage; page += 1) {
     pageIndexes.push(page - 1);
@@ -366,11 +366,14 @@ function buildPayload(input) {
   }
 
   const now = Math.floor(Date.now() / 1000);
+  const chapterLength = end - start + 1;
   const payload = {
-    v: 1,
+    v: 2,
     dbx: dropboxRef,
-    s: start,
-    e: end,
+    ss: start,
+    se: end,
+    s: 1,
+    e: chapterLength,
     d: isTruthy(input.download) ? 1 : 0,
     c: String(input.chapter || "Chapter").slice(0, 180),
     iat: now,
@@ -483,8 +486,14 @@ async function signToken(payload, env) {
   requireEnv(env, "TOKEN_SECRET");
   const tokenPayload = { ...payload };
   if (tokenPayload.dbx) {
-    tokenPayload.p = await encryptPrivatePayload({ dbx: tokenPayload.dbx }, env);
+    tokenPayload.p = await encryptPrivatePayload({
+      dbx: tokenPayload.dbx,
+      ss: tokenPayload.ss,
+      se: tokenPayload.se,
+    }, env);
     delete tokenPayload.dbx;
+    delete tokenPayload.ss;
+    delete tokenPayload.se;
   }
   const encodedPayload = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(tokenPayload)));
   const signature = await hmacSign(encodedPayload, env.TOKEN_SECRET);
@@ -522,8 +531,15 @@ async function verifyToken(token, env) {
   if (payload.p) {
     const privatePayload = await decryptPrivatePayload(payload.p, env);
     payload.dbx = privatePayload.dbx;
+    payload.ss = privatePayload.ss;
+    payload.se = privatePayload.se;
   }
   payload.dbx = normalizeDropboxRef(payload.dbx);
+  payload.ss = parsePositiveInteger(payload.ss || payload.s, "source start");
+  payload.se = parsePositiveInteger(payload.se || payload.e, "source end");
+  if (payload.se < payload.ss) {
+    throw new HttpError(401, "Invalid source page range");
+  }
   return payload;
 }
 
