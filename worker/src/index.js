@@ -1,3 +1,5 @@
+import { PDFDocument } from "pdf-lib";
+
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
 const DROPBOX_SHARED_LINK_METADATA_URL = "https://api.dropboxapi.com/2/sharing/get_shared_link_metadata";
@@ -131,7 +133,7 @@ async function handlePdfRequest(request, env) {
     return json({ error: "Token expired" }, request, env, 401);
   }
 
-  return proxyDropboxPdf(request, env, payload.dbx);
+  return proxyChapterPdf(request, env, payload);
 }
 
 async function proxyDropboxPdf(request, env, dropboxRef) {
@@ -176,6 +178,52 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
   });
 }
 
+async function proxyChapterPdf(request, env, payload) {
+  const accessToken = await getDropboxAccessToken(env);
+  const downloadRef = await resolveDropboxRefForDownload(accessToken, payload.dbx);
+  const dropboxResponse = await fetchDropboxPdf(new Request(request.url), accessToken, downloadRef);
+
+  if (!dropboxResponse.ok) {
+    return dropboxErrorResponse(dropboxResponse, request, env);
+  }
+
+  const sourceBytes = await dropboxResponse.arrayBuffer();
+  const sourcePdf = await PDFDocument.load(sourceBytes, {
+    ignoreEncryption: true,
+  });
+  const pageCount = sourcePdf.getPageCount();
+  const startPage = Math.max(1, Math.min(payload.s, pageCount));
+  const endPage = Math.max(startPage, Math.min(payload.e, pageCount));
+  const pageIndexes = [];
+  for (let page = startPage; page <= endPage; page += 1) {
+    pageIndexes.push(page - 1);
+  }
+
+  const chapterPdf = await PDFDocument.create();
+  const copiedPages = await chapterPdf.copyPages(sourcePdf, pageIndexes);
+  for (const page of copiedPages) {
+    chapterPdf.addPage(page);
+  }
+  chapterPdf.setTitle(String(payload.c || "Chapter"));
+  chapterPdf.setProducer("DTL Dropbox chapter reader lab");
+  const chapterBytes = await chapterPdf.save();
+
+  const headers = corsHeaders(request, env);
+  headers.set("content-type", "application/pdf");
+  headers.set("content-length", String(chapterBytes.byteLength));
+  headers.set("cache-control", "private, no-store");
+  headers.set("accept-ranges", "none");
+  headers.set("x-dtl-restriction-mode", "chapter-only-pdf");
+  headers.set("x-dtl-source-pages", String(pageCount));
+  headers.set("x-dtl-chapter-pages", `${startPage}-${endPage}`);
+  headers.set("x-dtl-chapter-page-count", String(pageIndexes.length));
+
+  return new Response(request.method === "HEAD" ? null : chapterBytes, {
+    status: 200,
+    headers,
+  });
+}
+
 async function fetchDropboxPdf(request, accessToken, dropboxRef) {
   const dropboxHeaders = new Headers({
     authorization: `Bearer ${accessToken}`,
@@ -191,6 +239,26 @@ async function fetchDropboxPdf(request, accessToken, dropboxRef) {
     method: "POST",
     headers: dropboxHeaders,
   });
+}
+
+async function dropboxErrorResponse(dropboxResponse, request, env) {
+  const details = await dropboxResponse.text().catch(() => "");
+  const safeDetails = summarizeDropboxError(details);
+  console.warn("Dropbox download failed", {
+    status: dropboxResponse.status,
+    details: safeDetails,
+  });
+  return json(
+    {
+      error: "Dropbox download failed",
+      status: dropboxResponse.status,
+      details: safeDetails,
+      hint: dropboxErrorHint(safeDetails),
+    },
+    request,
+    env,
+    502,
+  );
 }
 
 async function resolveDropboxRefForDownload(accessToken, dropboxRef) {

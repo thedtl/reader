@@ -3,7 +3,7 @@
 This Cloudflare Worker is the server-side part of the Dropbox experiment.
 
 It keeps Dropbox credentials out of the browser, signs chapter tokens, and
-proxies PDF bytes from Dropbox to PDF.js.
+creates chapter-only PDF responses for patron links.
 
 ## Secrets
 
@@ -25,7 +25,8 @@ preferred because Dropbox access tokens expire.
 - `GET /sign?password=...&dropbox=...&start=1&end=10&chapter=...`
 - `POST /batch-sign`
 - `GET /analyze?password=...&dropbox=...`
-- `GET /?token=...`
+- `GET /?token=...` returns a temporary PDF containing only the token's page
+  range.
 
 For the first proof of concept, `dropbox` can be a Dropbox API file reference
 such as `/Folder/Book.pdf` or `id:...`, or a Dropbox shared link. Shared links
@@ -33,6 +34,10 @@ require the Dropbox app permission `sharing.read`.
 
 Do not put Dropbox API tokens or secrets in the browser-facing reader. Signed
 reader tokens keep the Dropbox file reference encrypted.
+
+Staff bookmark extraction can still use `/analyze` to let PDF.js inspect the
+original bookmarked PDF. Patron links should use `/?token=...`, which assembles a
+chapter-only PDF before sending bytes to the browser.
 
 ## Local check
 

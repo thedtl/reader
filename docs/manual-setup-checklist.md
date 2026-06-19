@@ -41,19 +41,21 @@ because Dropbox access tokens expire.
 After secrets are set:
 
 1. Deploy the lab Worker.
-2. Generate a staff-only signed test token for one Dropbox PDF.
+2. Generate a staff-only signed test token for one Dropbox PDF chapter.
 3. Open the lab PDF.js viewer with `file=` pointed at the lab Worker URL.
-4. Confirm the PDF loads.
+4. Confirm the PDF loads and the Worker response header says
+   `x-dtl-restriction-mode: chapter-only-pdf`.
 5. Confirm browser network requests do not show a Dropbox API token.
 6. Confirm browser network requests do not show a Dropbox shared link.
-7. Compare large-PDF load behavior with the live reader.
+7. Confirm the browser receives only the selected chapter pages, not the full
+   source PDF page count.
+8. Compare large-PDF load behavior with the live reader.
 
 ## Important limitation
 
-The first Worker scaffold streams the PDF to PDF.js. This is useful for speed
-testing and keeping Dropbox private, but a technical patron may still be able to
-save PDF bytes that reach their browser.
+The Worker now creates a temporary chapter-only PDF for patron links, which is a
+stronger restriction than simply hiding PDF.js buttons.
 
-If the first test is fast enough but still exposes too much content, the next
-experiment should render chapter pages as images or tiles so the original PDF
-never reaches the browser.
+This still sends PDF bytes for the selected chapter to the browser. If that is
+still too permissive, the next experiment should render chapter pages as images
+or tiles.

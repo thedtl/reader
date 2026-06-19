@@ -207,9 +207,17 @@
         return;
       }
 
+      const restrictionMode = pdfResponse.headers.get("x-dtl-restriction-mode") || "unknown";
+      const chapterPageCount = pdfResponse.headers.get("x-dtl-chapter-page-count");
+
       readerLink.href = viewerUrl.toString();
       resultEl.classList.remove("hidden");
-      showStatus("Signed test link created.", "ok");
+      showStatus(
+        "Signed test link created. Worker response: " +
+          restrictionMode +
+          (chapterPageCount ? " (" + chapterPageCount + " pages)" : ""),
+        "ok"
+      );
     });
   </script>
 </body>
