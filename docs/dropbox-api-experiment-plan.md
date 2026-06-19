@@ -78,3 +78,21 @@ Start with Track A because it is closest to the existing working reader:
 
 If Track A improves speed but still exposes too much PDF content, move to
 Track B for stronger protection.
+
+## Lab Worker scaffold
+
+The `worker/` folder contains the first Track A scaffold:
+
+- `worker/src/index.js` signs chapter tokens and validates them before touching
+  Dropbox.
+- `worker/src/index.js` proxies Dropbox PDF bytes through the Dropbox API.
+- `worker/wrangler.toml` defines a Cloudflare Worker that can be deployed later.
+
+The first scaffold intentionally rejects browser-style Dropbox shared links in
+the token payload. Use a Dropbox API file reference such as `/Folder/Book.pdf`
+or `id:...` instead. A later staff-tool pass can make this friendlier by letting
+staff paste a shared link and resolving it server-side.
+
+This Track A scaffold is still a full-PDF streaming model. It can improve large
+PDF loading and hides the Dropbox credential, but it does not make PDF bytes
+impossible to save. For stronger download prevention, continue to Track B.

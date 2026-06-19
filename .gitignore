@@ -1,0 +1,6 @@
+.env
+.env.*
+node_modules/
+worker/.wrangler/
+worker/dist/
+*.log

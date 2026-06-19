@@ -1,0 +1,6 @@
+name = "dtl-chapter-reader-dropbox-lab"
+main = "src/index.js"
+compatibility_date = "2026-06-19"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:8000,http://127.0.0.1:8000,https://thedtl.github.io"
