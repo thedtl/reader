@@ -6,3 +6,5 @@ node_modules/
 worker/.wrangler/
 worker/dist/
 *.log
+__pycache__/
+*.pyc

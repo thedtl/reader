@@ -3,7 +3,10 @@
 This Cloudflare Worker is the server-side part of the Dropbox experiment.
 
 It keeps Dropbox credentials out of the browser, signs chapter tokens, and
-creates chapter-only PDF responses for patron links.
+creates chapter-only PDF responses for the older lab path. The image-reader
+experiment adds routes that validate the same signed token, fetch the source PDF
+server-side, call an internal Cloudflare Container renderer, and return page
+images to the patron browser.
 
 ## Secrets
 
@@ -19,6 +22,10 @@ For a quick short-lived smoke test only, `DROPBOX_ACCESS_TOKEN` can be used
 instead of the three Dropbox refresh-token secrets. The refresh-token setup is
 preferred because Dropbox access tokens expire.
 
+## Variables
+
+- `ALLOWED_ORIGINS`: allowed browser origins for CORS.
+
 ## Routes
 
 - `GET /health`
@@ -27,6 +34,9 @@ preferred because Dropbox access tokens expire.
 - `GET /analyze?password=...&dropbox=...`
 - `GET /?token=...` returns a temporary PDF containing only the token's page
   range.
+- `GET /chapter-manifest?token=...` returns image-reader chapter metadata.
+- `GET /chapter-page?token=...&page=1` returns one rendered page image for the
+  image reader.
 
 For the first proof of concept, `dropbox` can be a Dropbox API file reference
 such as `/Folder/Book.pdf` or `id:...`, or a Dropbox shared link. Shared links
@@ -36,8 +46,13 @@ Do not put Dropbox API tokens or secrets in the browser-facing reader. Signed
 reader tokens keep the Dropbox file reference encrypted.
 
 Staff bookmark extraction can still use `/analyze` to let PDF.js inspect the
-original bookmarked PDF. Patron links should use `/?token=...`, which assembles a
-chapter-only PDF before sending bytes to the browser.
+original bookmarked PDF. The older PDF lab path uses `/?token=...`, which
+assembles a chapter-only PDF before sending bytes to the browser.
+
+The image-reader path signs tokens with `mode=image`. Patron pages then use
+`/chapter-manifest` and `/chapter-page`. The browser receives image bytes only;
+the Dropbox link, Dropbox file reference, source PDF, and source page range stay
+inside the Worker/container backend path.
 
 For patron tokens, the original source page range is encrypted in the private
 token payload. The public token range is rewritten to `1..chapter length` so the
@@ -47,7 +62,8 @@ numbers.
 ## Local check
 
 ```sh
-node --check worker/src/index.js
+node --check src/index.js
+node --check src/chapter-images.js
 ```
 
 ## Deploy later

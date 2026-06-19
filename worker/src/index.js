@@ -1,4 +1,6 @@
+import { Container } from "@cloudflare/containers";
 import { PDFDocument } from "pdf-lib";
+import { createChapterImageHandlers } from "./chapter-images.js";
 
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
@@ -17,6 +19,24 @@ class HttpError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+const chapterImages = createChapterImageHandlers({
+  HttpError,
+  corsHeaders,
+  dropboxErrorResponse,
+  fetchDropboxPdf,
+  getDropboxAccessToken,
+  json,
+  parsePositiveInteger,
+  requireEnv,
+  resolveDropboxRefForDownload,
+  verifyToken,
+});
+
+export class PageRenderer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "10m";
 }
 
 export default {
@@ -47,6 +67,20 @@ export default {
         return await handleAnalyze(request, env);
       }
 
+      if (
+        (url.pathname === "/chapter-manifest" || url.pathname === "/image/manifest") &&
+        request.method === "GET"
+      ) {
+        return await chapterImages.handleChapterManifest(request, env);
+      }
+
+      if (
+        (url.pathname === "/chapter-page" || url.pathname === "/image/page") &&
+        (request.method === "GET" || request.method === "HEAD")
+      ) {
+        return await chapterImages.handleChapterPageImage(request, env);
+      }
+
       if (request.method === "GET" || request.method === "HEAD") {
         return await handlePdfRequest(request, env);
       }
@@ -69,6 +103,7 @@ async function handleSign(request, env) {
   const url = new URL(request.url);
   const payload = buildPayload({
     dropbox: url.searchParams.get("dropbox") || url.searchParams.get("path"),
+    mode: url.searchParams.get("mode"),
     start: url.searchParams.get("start"),
     end: url.searchParams.get("end"),
     chapter: url.searchParams.get("chapter") || url.searchParams.get("c"),
@@ -96,6 +131,7 @@ async function handleBatchSign(request, env) {
   for (const chapter of body.chapters) {
     const payload = buildPayload({
       dropbox: body.dropbox || body.path,
+      mode: body.mode,
       start: chapter.start,
       end: chapter.end,
       chapter: chapter.title || chapter.chapter || chapter.name,
@@ -367,6 +403,7 @@ function buildPayload(input) {
 
   const now = Math.floor(Date.now() / 1000);
   const chapterLength = end - start + 1;
+  const mode = String(input.mode || "pdf").trim().toLowerCase();
   const payload = {
     v: 2,
     dbx: dropboxRef,
@@ -378,6 +415,12 @@ function buildPayload(input) {
     c: String(input.chapter || "Chapter").slice(0, 180),
     iat: now,
   };
+
+  if (mode === "image") {
+    payload.m = "image";
+  } else if (mode !== "pdf") {
+    throw new HttpError(400, "mode must be pdf or image");
+  }
 
   const expiresMinutes = Number(input.expires || 0);
   if (Number.isFinite(expiresMinutes) && expiresMinutes > 0) {

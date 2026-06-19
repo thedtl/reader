@@ -106,7 +106,7 @@
       <p class="note">For this test, paste either a Dropbox shared link or a Dropbox file path such as <code>/Folder/Book.pdf</code>.</p>
 
       <label for="workerUrl">Worker URL</label>
-      <input id="workerUrl" value="https://dtl-chapter-reader-dropbox-lab.ccrawford.workers.dev">
+      <input id="workerUrl" value="https://dtl-chapter-reader-dropbox-lab.reference-dfe.workers.dev">
 
       <label for="staffPassword">Staff password</label>
       <input id="staffPassword" type="password" autocomplete="off">
@@ -172,6 +172,7 @@
       signUrl.searchParams.set("start", start);
       signUrl.searchParams.set("end", end);
       signUrl.searchParams.set("chapter", chapter);
+      signUrl.searchParams.set("mode", "image");
       signUrl.searchParams.set("expires", "30");
 
       const response = await fetch(signUrl);
@@ -181,41 +182,35 @@
         return;
       }
 
-      const pdfUrl = workerUrl + "/?token=" + encodeURIComponent(data.token);
-      const viewerUrl = new URL("web/viewer.html", location.href);
-      viewerUrl.searchParams.set("file", pdfUrl);
+      const viewerUrl = new URL("web/image-reader.html", location.href);
+      viewerUrl.searchParams.set("worker", workerUrl);
+      viewerUrl.searchParams.set("token", data.token);
 
-      showStatus("Checking that Dropbox will send the PDF...");
-      const pdfResponse = await fetch(pdfUrl, {
-        headers: {
-          range: "bytes=0-0",
-        },
-      });
-      if (!pdfResponse.ok && pdfResponse.status !== 206) {
-        const text = await pdfResponse.text();
+      showStatus("Checking that the Worker can return the chapter manifest...");
+      const manifestUrl = new URL(workerUrl + "/chapter-manifest");
+      manifestUrl.searchParams.set("token", data.token);
+      const manifestResponse = await fetch(manifestUrl);
+      if (!manifestResponse.ok) {
+        const text = await manifestResponse.text();
         let message = text;
         try {
           const errorData = JSON.parse(text);
           message = [
             errorData.error,
-            errorData.status ? "Dropbox status: " + errorData.status : "",
             errorData.hint,
             errorData.details,
           ].filter(Boolean).join(" ");
         } catch {}
-        showStatus(message || "Dropbox did not send the PDF.", "error");
+        showStatus(message || "The Worker did not return a chapter manifest.", "error");
         return;
       }
 
-      const restrictionMode = pdfResponse.headers.get("x-dtl-restriction-mode") || "unknown";
-      const chapterPageCount = pdfResponse.headers.get("x-dtl-chapter-page-count");
+      const manifest = await manifestResponse.json();
 
       readerLink.href = viewerUrl.toString();
       resultEl.classList.remove("hidden");
       showStatus(
-        "Signed test link created. Worker response: " +
-          restrictionMode +
-          (chapterPageCount ? " (" + chapterPageCount + " pages)" : ""),
+        "Signed image-reader link created (" + manifest.pageCount + " pages).",
         "ok"
       );
     });

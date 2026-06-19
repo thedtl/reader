@@ -98,3 +98,19 @@ staff paste a shared link and resolving it server-side.
 This Track A scaffold is still a full-PDF streaming model. It can improve large
 PDF loading and hides the Dropbox credential, but it does not make PDF bytes
 impossible to save. For stronger download prevention, continue to Track B.
+
+## Track B lab shape
+
+The image-rendered lab keeps the existing Worker token and Dropbox boundary, but
+moves PDF rasterization into a separate Cloudflare Container:
+
+- `worker/src/index.js`: routing, signing, Dropbox access, and existing PDF lab
+  behavior.
+- `worker/src/chapter-images.js`: image-reader manifest/page endpoints.
+- `render-service/`: a small Poppler-backed container service that accepts one
+  internal PDF render request from the Worker and returns an image.
+- `web/image-reader.html`: static patron reader that displays image pages only.
+
+This keeps the responsibilities separate: the browser displays images, the
+Worker validates tokens and keeps Dropbox private, and the container performs
+the PDF-to-image operation.
