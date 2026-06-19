@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 const PORT = 8789;
 const HOST = "127.0.0.1";
 const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
+const DROPBOX_SCOPES = "files.content.read files.metadata.read sharing.read";
 
 const page = `<!doctype html>
 <html lang="en">
@@ -181,6 +182,7 @@ const page = `<!doctype html>
       url.searchParams.set("client_id", appKey);
       url.searchParams.set("response_type", "code");
       url.searchParams.set("token_access_type", "offline");
+      url.searchParams.set("scope", "${DROPBOX_SCOPES}");
       authLink.href = url.toString();
       authSection.classList.remove("hidden");
       codeSection.classList.remove("hidden");

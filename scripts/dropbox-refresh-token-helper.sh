@@ -12,7 +12,7 @@ if [[ -z "${APP_KEY}" ]]; then
   exit 1
 fi
 
-AUTH_URL="https://www.dropbox.com/oauth2/authorize?client_id=${APP_KEY}&response_type=code&token_access_type=offline"
+AUTH_URL="https://www.dropbox.com/oauth2/authorize?client_id=${APP_KEY}&response_type=code&token_access_type=offline&scope=files.content.read%20files.metadata.read%20sharing.read"
 
 echo
 echo "Open this URL in your browser, approve access, then copy the authorization code Dropbox shows:"
