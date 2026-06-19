@@ -35,33 +35,21 @@ Cloudflare Worker, with Dropbox credentials stored as Worker secrets.
    - the Dropbox file ID or approved Dropbox path,
    - the allowed chapter start page,
    - the allowed chapter end page,
-   - expiry and download policy.
+   - download policy.
 3. The patron opens the static PDF.js reader.
 4. The reader requests content from the Worker, not from Dropbox directly.
 5. The Worker validates the token before contacting Dropbox.
 6. The Worker uses the Dropbox API to fetch only what the current design allows.
-
-## Two experiment tracks
-
-### Track A: Faster PDF streaming
 
 This keeps PDF.js and streams the PDF through the Worker with HTTP Range support.
 It should improve initial load time for large PDFs when the source PDF and
 network support partial reads.
 
 Tradeoff: the browser still receives PDF bytes. A technical patron may still be
-able to save the allowed PDF bytes, and if the Worker serves the full source PDF
-then the full source PDF is still recoverable. This is a performance improvement,
-not strong download prevention.
-
-### Track B: Page image rendering
-
-This changes the Worker/backend to render only the requested chapter pages as
-images or tiles, and the browser displays those rendered pages instead of a PDF.
-
-Tradeoff: this is more engineering work, and patrons can still screenshot pages.
-However, the browser never receives the original PDF file, which is much stronger
-download prevention than hiding PDF.js buttons.
+able to save the allowed chapter PDF bytes. The current goal is not to make a
+PDF impossible to save; it is to avoid exposing Dropbox credentials or the full
+source PDF, while making copied URLs hard to reuse outside the approved reader
+flow.
 
 ## First proof of concept
 
@@ -76,12 +64,9 @@ Start with Track A because it is closest to the existing working reader:
 7. Confirm no Dropbox shared link or Dropbox API token appears in browser
    network requests.
 
-If Track A improves speed but still exposes too much PDF content, move to
-Track B for stronger protection.
-
 ## Lab Worker scaffold
 
-The `worker/` folder contains the first Track A scaffold:
+The `worker/` folder contains the first scaffold:
 
 - `worker/src/index.js` signs chapter tokens and validates them before touching
   Dropbox.
@@ -90,27 +75,10 @@ The `worker/` folder contains the first Track A scaffold:
   keep operating after short-lived Dropbox access tokens expire.
 - `worker/wrangler.toml` defines a Cloudflare Worker that can be deployed later.
 
-The first scaffold intentionally rejects browser-style Dropbox shared links in
-the token payload. Use a Dropbox API file reference such as `/Folder/Book.pdf`
-or `id:...` instead. A later staff-tool pass can make this friendlier by letting
-staff paste a shared link and resolving it server-side.
+The first scaffold accepts Dropbox API file references such as `/Folder/Book.pdf`
+or `id:...`, and can also resolve Dropbox shared links server-side when the
+Dropbox app has `sharing.read`.
 
-This Track A scaffold is still a full-PDF streaming model. It can improve large
-PDF loading and hides the Dropbox credential, but it does not make PDF bytes
-impossible to save. For stronger download prevention, continue to Track B.
-
-## Track B lab shape
-
-The image-rendered lab keeps the existing Worker token and Dropbox boundary, but
-moves PDF rasterization into a separate Cloudflare Container:
-
-- `worker/src/index.js`: routing, signing, Dropbox access, and existing PDF lab
-  behavior.
-- `worker/src/chapter-images.js`: image-reader manifest/page endpoints.
-- `render-service/`: a small Poppler-backed container service that accepts one
-  internal PDF render request from the Worker and returns an image.
-- `web/image-reader.html`: static patron reader that displays image pages only.
-
-This keeps the responsibilities separate: the browser displays images, the
-Worker validates tokens and keeps Dropbox private, and the container performs
-the PDF-to-image operation.
+The lab now keeps the simpler chapter-only PDF approach. The Worker also checks
+that patron PDF requests come from the approved PDF.js reader origin, so copying
+the raw Worker URL should not be useful by itself.

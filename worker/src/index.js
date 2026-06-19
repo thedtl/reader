@@ -1,6 +1,4 @@
-import { Container } from "@cloudflare/containers";
 import { PDFDocument } from "pdf-lib";
-import { createChapterImageHandlers } from "./chapter-images.js";
 
 const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
@@ -14,30 +12,22 @@ const JSON_HEADERS = {
 
 let cachedDropboxAccessToken = null;
 
+// Tombstone for the former image-renderer lab Durable Object class. Cloudflare
+// keeps migration history, so the class must remain exported until we choose to
+// run an explicit delete-class migration.
+export class PageRenderer {
+  async fetch() {
+    return new Response("PageRenderer is no longer used by this lab Worker.", {
+      status: 410,
+    });
+  }
+}
+
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
   }
-}
-
-const chapterImages = createChapterImageHandlers({
-  HttpError,
-  corsHeaders,
-  dropboxErrorResponse,
-  fetchDropboxPdf,
-  getDropboxAccessToken,
-  json,
-  parsePositiveInteger,
-  requireEnv,
-  resolveDropboxRefForDownload,
-  sha256Base64Url,
-  verifyToken,
-});
-
-export class PageRenderer extends Container {
-  defaultPort = 8080;
-  sleepAfter = "10m";
 }
 
 export default {
@@ -66,20 +56,6 @@ export default {
 
       if (url.pathname === "/analyze" && (request.method === "GET" || request.method === "HEAD")) {
         return await handleAnalyze(request, env);
-      }
-
-      if (
-        (url.pathname === "/chapter-manifest" || url.pathname === "/image/manifest") &&
-        request.method === "GET"
-      ) {
-        return await chapterImages.handleChapterManifest(request, env);
-      }
-
-      if (
-        (url.pathname === "/chapter-page" || url.pathname === "/image/page") &&
-        (request.method === "GET" || request.method === "HEAD")
-      ) {
-        return await chapterImages.handleChapterPageImage(request, env);
       }
 
       if (request.method === "GET" || request.method === "HEAD") {
@@ -163,6 +139,11 @@ async function handlePdfRequest(request, env) {
   const token = url.searchParams.get("token");
   if (!token) {
     return json({ error: "Missing token" }, request, env, 401);
+  }
+
+  const sourceError = validatePdfRequestSource(request, env);
+  if (sourceError) {
+    return json({ error: sourceError }, request, env, 403);
   }
 
   const payload = await verifyToken(token, env);
@@ -486,19 +467,47 @@ function dropboxErrorHint(details) {
   return "Use the Dropbox error details to decide the next setup step.";
 }
 
-async function sha256Base64Url(value) {
-  const bytes = new TextEncoder().encode(String(value));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const binary = String.fromCharCode(...new Uint8Array(digest));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 function parsePositiveInteger(value, label) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 1) {
     throw new HttpError(400, `${label} must be a positive whole number`);
   }
   return number;
+}
+
+function validatePdfRequestSource(request, env) {
+  const url = new URL(request.url);
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return null;
+  }
+
+  const allowedOrigins = allowedPdfRequestOrigins(env);
+  if (allowedOrigins.length === 0) {
+    return null;
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin && allowedOrigins.includes(origin)) {
+    return null;
+  }
+
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      if (allowedOrigins.includes(new URL(referer).origin)) {
+        return null;
+      }
+    } catch {}
+  }
+
+  return "This chapter link must be opened from the DTL chapter reader";
+}
+
+function allowedPdfRequestOrigins(env) {
+  return String(env.ALLOWED_PDF_REQUEST_ORIGINS || env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map(origin => origin.trim())
+    .filter(Boolean);
 }
 
 function isTruthy(value) {

@@ -172,8 +172,6 @@
       signUrl.searchParams.set("start", start);
       signUrl.searchParams.set("end", end);
       signUrl.searchParams.set("chapter", chapter);
-      signUrl.searchParams.set("mode", "image");
-      signUrl.searchParams.set("expires", "30");
 
       const response = await fetch(signUrl);
       const data = await response.json().catch(() => ({}));
@@ -182,16 +180,15 @@
         return;
       }
 
-      const viewerUrl = new URL("web/image-reader.html", location.href);
-      viewerUrl.searchParams.set("worker", workerUrl);
-      viewerUrl.searchParams.set("token", data.token);
+      const chapterPdfUrl = new URL(workerUrl + "/");
+      chapterPdfUrl.searchParams.set("token", data.token);
 
-      showStatus("Checking that the Worker can return the chapter manifest...");
-      const manifestUrl = new URL(workerUrl + "/chapter-manifest");
-      manifestUrl.searchParams.set("token", data.token);
-      const manifestResponse = await fetch(manifestUrl);
-      if (!manifestResponse.ok) {
-        const text = await manifestResponse.text();
+      showStatus("Checking that the Worker can return a chapter-only PDF...");
+      const pdfResponse = await fetch(chapterPdfUrl, {
+        headers: { range: "bytes=0-1023" },
+      });
+      if (!pdfResponse.ok && pdfResponse.status !== 206) {
+        const text = await pdfResponse.text();
         let message = text;
         try {
           const errorData = JSON.parse(text);
@@ -201,16 +198,17 @@
             errorData.details,
           ].filter(Boolean).join(" ");
         } catch {}
-        showStatus(message || "The Worker did not return a chapter manifest.", "error");
+        showStatus(message || "The Worker did not return a chapter-only PDF.", "error");
         return;
       }
 
-      const manifest = await manifestResponse.json();
+      const viewerUrl = new URL("web/viewer.html", location.href);
+      viewerUrl.searchParams.set("file", chapterPdfUrl.toString());
 
       readerLink.href = viewerUrl.toString();
       resultEl.classList.remove("hidden");
       showStatus(
-        "Signed image-reader link created (" + manifest.pageCount + " pages).",
+        "Signed chapter-only PDF reader link created.",
         "ok"
       );
     });

@@ -36,22 +36,6 @@ For a quick smoke test only, the Worker can use `DROPBOX_ACCESS_TOKEN` instead
 of the three Dropbox refresh-token secrets. The refresh-token setup is preferred
 because Dropbox access tokens expire.
 
-## Page renderer container
-
-Goal: render one source PDF page to an image without exposing the PDF to the
-patron browser.
-
-The lab renderer lives in `render-service/`. It is intentionally separate from
-the Worker so PDF rasterization can use Poppler in a Cloudflare Container
-instead of being forced into Worker limits.
-
-Needed later:
-
-- Docker or Colima running locally so Wrangler can build the container image.
-- `@cloudflare/containers` installed in the Worker package.
-- `PAGE_RENDERER` bound as a Durable Object backed by the `PageRenderer`
-  container class.
-
 ## First live test
 
 After secrets are set:
@@ -65,26 +49,15 @@ After secrets are set:
 6. Confirm browser network requests do not show a Dropbox shared link.
 7. Confirm the browser receives only the selected chapter pages, not the full
    source PDF page count.
-8. Compare large-PDF load behavior with the live reader.
-
-## First image-reader test
-
-After the Worker and renderer container are deployed:
-
-1. Generate a staff-only signed test token with `mode=image`.
-2. Open `web/image-reader.html` with the lab Worker URL and signed token.
-3. Confirm the reader loads a chapter manifest.
-4. Confirm `/chapter-page?token=...&page=1` returns an image content type.
-5. Confirm the browser Network tab does not show a PDF response for the patron
-   reader page.
-6. Confirm the Dropbox shared link, Dropbox file reference, and source PDF are
-   not visible in page source or Network URLs.
+8. Confirm the raw Worker PDF URL fails when opened directly, without the
+   approved PDF.js viewer as the request source.
+9. Compare large-PDF load behavior with the live reader.
 
 ## Important limitation
 
 The Worker now creates a temporary chapter-only PDF for patron links, which is a
 stronger restriction than simply hiding PDF.js buttons.
 
-This still sends PDF bytes for the selected chapter to the browser. If that is
-still too permissive, the next experiment should render chapter pages as images
-or tiles.
+This still sends PDF bytes for the selected chapter to the browser. The current
+protection goal is to make copied URLs hard to reuse by combining the customized
+PDF.js viewer restrictions with a Worker-side allowed-source check.

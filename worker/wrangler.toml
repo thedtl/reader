@@ -4,16 +4,4 @@ compatibility_date = "2026-06-19"
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:8000,http://127.0.0.1:8000,https://thedtl.github.io"
-
-[[containers]]
-class_name = "PageRenderer"
-image = "../render-service/Dockerfile"
-max_instances = 2
-
-[[durable_objects.bindings]]
-class_name = "PageRenderer"
-name = "PAGE_RENDERER"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["PageRenderer"]
+ALLOWED_PDF_REQUEST_ORIGINS = "http://localhost:8000,http://127.0.0.1:8000,https://thedtl.github.io"

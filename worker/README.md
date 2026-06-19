@@ -3,10 +3,7 @@
 This Cloudflare Worker is the server-side part of the Dropbox experiment.
 
 It keeps Dropbox credentials out of the browser, signs chapter tokens, and
-creates chapter-only PDF responses for the older lab path. The image-reader
-experiment adds routes that validate the same signed token, fetch the source PDF
-server-side, call an internal Cloudflare Container renderer, and return page
-images to the patron browser.
+creates chapter-only PDF responses for the lab reader.
 
 ## Secrets
 
@@ -25,6 +22,8 @@ preferred because Dropbox access tokens expire.
 ## Variables
 
 - `ALLOWED_ORIGINS`: allowed browser origins for CORS.
+- `ALLOWED_PDF_REQUEST_ORIGINS`: origins allowed to request tokenized chapter
+  PDFs. In production this should be the approved PDF.js reader origin.
 
 ## Routes
 
@@ -34,9 +33,6 @@ preferred because Dropbox access tokens expire.
 - `GET /analyze?password=...&dropbox=...`
 - `GET /?token=...` returns a temporary PDF containing only the token's page
   range.
-- `GET /chapter-manifest?token=...` returns image-reader chapter metadata.
-- `GET /chapter-page?token=...&page=1` returns one rendered page image for the
-  image reader.
 
 For the first proof of concept, `dropbox` can be a Dropbox API file reference
 such as `/Folder/Book.pdf` or `id:...`, or a Dropbox shared link. Shared links
@@ -46,18 +42,12 @@ Do not put Dropbox API tokens or secrets in the browser-facing reader. Signed
 reader tokens keep the Dropbox file reference encrypted.
 
 Staff bookmark extraction can still use `/analyze` to let PDF.js inspect the
-original bookmarked PDF. The older PDF lab path uses `/?token=...`, which
-assembles a chapter-only PDF before sending bytes to the browser.
+original bookmarked PDF. Patron links use `/?token=...`, which assembles a
+chapter-only PDF before sending bytes to the browser.
 
-The image-reader path signs tokens with `mode=image`. Patron pages then use
-`/chapter-manifest` and `/chapter-page`. The browser receives image bytes only;
-the Dropbox link, Dropbox file reference, source PDF, and source page range stay
-inside the Worker/container backend path.
-
-To keep page turns faster without creating avoidable render costs, the Worker
-asks the renderer whether it already has the source PDF cached before downloading
-from Dropbox again. The browser caches only pages the patron actually opens; it
-does not pre-render unopened pages.
+To make copied URLs harder to reuse, tokenized PDF requests must come from an
+allowed reader origin. A raw Worker URL pasted into a new tab should fail even
+when the token itself is valid.
 
 For patron tokens, the original source page range is encrypted in the private
 token payload. The public token range is rewritten to `1..chapter length` so the
@@ -68,7 +58,6 @@ numbers.
 
 ```sh
 node --check src/index.js
-node --check src/chapter-images.js
 ```
 
 ## Deploy later
