@@ -54,6 +54,11 @@ The image-reader path signs tokens with `mode=image`. Patron pages then use
 the Dropbox link, Dropbox file reference, source PDF, and source page range stay
 inside the Worker/container backend path.
 
+To keep page turns faster without creating avoidable render costs, the Worker
+asks the renderer whether it already has the source PDF cached before downloading
+from Dropbox again. The browser caches only pages the patron actually opens; it
+does not pre-render unopened pages.
+
 For patron tokens, the original source page range is encrypted in the private
 token payload. The public token range is rewritten to `1..chapter length` so the
 reader works against the temporary chapter-only PDF, not the source PDF's page

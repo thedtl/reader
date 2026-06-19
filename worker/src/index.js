@@ -31,6 +31,7 @@ const chapterImages = createChapterImageHandlers({
   parsePositiveInteger,
   requireEnv,
   resolveDropboxRefForDownload,
+  sha256Base64Url,
   verifyToken,
 });
 
@@ -483,6 +484,13 @@ function dropboxErrorHint(details) {
     return "Dropbox could not find this file through the current app access. Check that the app was authorized against the Dropbox account that owns the PDF.";
   }
   return "Use the Dropbox error details to decide the next setup step.";
+}
+
+async function sha256Base64Url(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const binary = String.fromCharCode(...new Uint8Array(digest));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function parsePositiveInteger(value, label) {

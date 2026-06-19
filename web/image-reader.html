@@ -174,6 +174,8 @@
     let manifest = null;
     let currentPage = 1;
     let currentImageUrl = "";
+    const pageBlobCache = new Map();
+    const pageFetches = new Map();
 
     function setStatus(message, isError = false) {
       if (currentImageUrl) {
@@ -218,20 +220,7 @@
       setStatus("Loading page...");
       updateControls();
 
-      const url = new URL(workerUrl + "/chapter-page");
-      url.searchParams.set("token", token);
-      url.searchParams.set("page", String(page));
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "This page could not be loaded.");
-      }
-
-      const blob = await response.blob();
-      if (!blob.type.startsWith("image/")) {
-        throw new Error("The server did not return a page image.");
-      }
+      const blob = await fetchPageBlob(page);
 
       if (currentImageUrl) {
         URL.revokeObjectURL(currentImageUrl);
@@ -246,6 +235,41 @@
       frameEl.appendChild(image);
       currentPage = page;
       updateControls();
+    }
+
+    async function fetchPageBlob(page) {
+      if (pageBlobCache.has(page)) {
+        return pageBlobCache.get(page);
+      }
+      if (pageFetches.has(page)) {
+        return pageFetches.get(page);
+      }
+
+      const url = new URL(workerUrl + "/chapter-page");
+      url.searchParams.set("token", token);
+      url.searchParams.set("page", String(page));
+
+      const fetchPromise = fetch(url)
+        .then(async response => {
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || "This page could not be loaded.");
+          }
+
+          const blob = await response.blob();
+          if (!blob.type.startsWith("image/")) {
+            throw new Error("The server did not return a page image.");
+          }
+
+          pageBlobCache.set(page, blob);
+          return blob;
+        })
+        .finally(() => {
+          pageFetches.delete(page);
+        });
+
+      pageFetches.set(page, fetchPromise);
+      return fetchPromise;
     }
 
     previousButton.addEventListener("click", () => {
