@@ -100,12 +100,14 @@ async function suggestHeadingWithGemini(lines, images, env) {
     .join("\n");
 
   const prompt = [
-    "You are helping library staff create a concise bibliographic heading for chapter links.",
-    "Use only the provided front-matter text. Do not invent facts.",
-    "Return one editable heading in this style when possible: Author Last Name, Book Title.",
-    "If there is a subtitle, include it only when it clearly belongs to the book title.",
-    "Ignore copyright, ISBN, publisher-address, library-cataloging, table-of-contents, and chapter-title lines.",
-    "If an editor is clearly the main responsible person and no author is visible, use Editor Name, ed., Book Title.",
+    "You are helping library staff create a full bibliographic heading for chapter links.",
+    "Use only the provided front-matter text and page images. Do not invent facts.",
+    "Return one editable Chicago Manual of Style bibliography-style entry for the whole book or source.",
+    "Use this style when the facts are visible: Last Name, First Name. Title: Subtitle. Place: Publisher, Year.",
+    "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds.",
+    "Include volume, series, translator, edition, or editor details only when they are clearly visible and bibliographically important.",
+    "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
+    "Ignore ISBN, copyright boilerplate, library-cataloging blocks, table-of-contents lines, and chapter-title lines.",
     "Return JSON only, with this shape: {\"heading\":\"...\"}.",
     "",
     excerpts || "No selectable text was extracted. Read the attached front-matter page images.",
