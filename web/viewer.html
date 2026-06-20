@@ -110,8 +110,7 @@ See https://github.com/adobe-type-tools/cmap-resources
         '<div style="color:' + MUTED + ';line-height:1.6;margin-bottom:18px;">Your viewing session has ended. For copyright protection, you cannot return to the previous page.</div>' +
         '<button id="dtl-session-return" style="width:100%;padding:14px 18px;border:0;border-radius:10px;background:' + DTL_BLUE + ';color:white;font-weight:800;font-size:15px;cursor:pointer;margin-bottom:12px;">📖 Return to Chapter</button>' +
         '<div style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">' +
-          '<a href="https://libguides.thedtl.org/home" style="display:block;padding:14px 18px;border-radius:10px;background:' + DTL_RED + ';color:white;text-decoration:none;font-weight:800;">📖 DTL Catalog</a>' +
-          '<a href="https://dtl2.libguides.com/home" style="display:block;padding:14px 18px;border-radius:10px;background:' + DTL_BLUE + ';color:white;text-decoration:none;font-weight:800;">📚 DTL2 Catalog</a>' +
+          '<a href="https://dtl.primo.exlibrisgroup.com/nde/home?vid=01DTL_INST:DTL1&lang=en" style="display:block;padding:14px 18px;border-radius:10px;background:' + DTL_RED + ';color:white;text-decoration:none;font-weight:800;">📖 DTL Catalog</a>' +
         "</div>" +
         '<div style="color:#9ca3af;font-size:12px;margin-top:14px;line-height:1.5;">Need help? Contact your librarian for assistance.</div>' +
       "</div>";
@@ -1121,8 +1120,7 @@ See https://github.com/adobe-type-tools/cmap-resources
                         <h1>' + title + '</h1>\
                         <p class="message">' + message + '</p>\
                         <div class="links">\
-                            <a href="https://libguides.thedtl.org/home" class="btn btn-primary">📖 DTL Catalog</a>\
-                            <a href="https://dtl2.libguides.com/home" class="btn btn-secondary">📚 DTL2 Catalog</a>\
+                            <a href="https://dtl.primo.exlibrisgroup.com/nde/home?vid=01DTL_INST:DTL1&lang=en" class="btn btn-primary">📖 DTL Catalog</a>\
                         </div>\
                         <p class="help">Need help? Contact your librarian for assistance.</p>\
                     </div>\
@@ -1368,7 +1366,7 @@ See https://github.com/adobe-type-tools/cmap-resources
             
             var card = document.createElement('div');
             card.id = 'dtl-chapter-end-card';
-            card.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;justify-content:center;align-items:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;padding:20px;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);"><div style="font-size:48px;margin-bottom:16px;">📖</div><h2 style="margin:0 0 12px 0;color:#1f2937;font-size:24px;">' + title + '</h2><p style="color:#6b7280;margin:0 0 24px 0;line-height:1.6;">' + message + '</p><button id="dtl-end-card-close" style="padding:14px 18px;background:#154889;color:white;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:20px;width:100%;">Return to Chapter</button><div style="border-top:1px solid #eee;padding-top:20px;"><p style="color:#9ca3af;font-size:13px;margin-bottom:12px;">Looking for more? Browse our catalogs:</p><div style="display:flex;flex-direction:column;gap:12px;"><a href="https://libguides.thedtl.org/home" target="_blank" style="display:block;padding:14px 18px;border-radius:10px;background:#AF161C;color:white;text-decoration:none;font-weight:800;">📖 DTL Catalog</a><a href="https://dtl2.libguides.com/home" target="_blank" style="display:block;padding:14px 18px;border-radius:10px;background:#154889;color:white;text-decoration:none;font-weight:800;">📚 DTL2 Catalog</a></div></div></div></div>';
+            card.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;justify-content:center;align-items:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;padding:20px;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);"><div style="font-size:48px;margin-bottom:16px;">📖</div><h2 style="margin:0 0 12px 0;color:#1f2937;font-size:24px;">' + title + '</h2><p style="color:#6b7280;margin:0 0 24px 0;line-height:1.6;">' + message + '</p><button id="dtl-end-card-close" style="padding:14px 18px;background:#154889;color:white;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:20px;width:100%;">Return to Chapter</button><div style="border-top:1px solid #eee;padding-top:20px;"><p style="color:#9ca3af;font-size:13px;margin-bottom:12px;">Looking for more? Browse our catalog:</p><div style="display:flex;flex-direction:column;gap:12px;"><a href="https://dtl.primo.exlibrisgroup.com/nde/home?vid=01DTL_INST:DTL1&lang=en" target="_blank" style="display:block;padding:14px 18px;border-radius:10px;background:#AF161C;color:white;text-decoration:none;font-weight:800;">📖 DTL Catalog</a></div></div></div></div>';
             document.body.appendChild(card);
             document.getElementById('dtl-end-card-close').onclick = function() { card.remove(); endCardShowing = false; };
         }
