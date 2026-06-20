@@ -76,7 +76,7 @@ function normalizeHeadingImages(rawImages) {
   }
 
   return rawImages
-    .slice(0, 3)
+    .slice(0, 8)
     .map(image => {
       if (!image || typeof image !== "object") {
         return null;
@@ -102,17 +102,17 @@ async function suggestHeadingWithGemini(lines, images, env) {
   const prompt = [
     "You are helping library staff create a full bibliographic heading for chapter links.",
     "Use only the provided front-matter text and page images. Do not invent facts.",
-    "Return one editable Chicago Manual of Style bibliography-style entry for the whole book or source.",
-    "Use this style when the facts are visible: Last Name, First Name. Title: Subtitle. Series Title, volume/number. Place: Publisher, Year.",
-    "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds.",
-    "Include series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
+    "Extract separate bibliographic fields first, then create one Chicago Manual of Style bibliography-style entry for the whole book or source.",
+    "Use this final style when the facts are visible: Last Name, First Name. Title: Subtitle. Series Title, volume/number. City: Publisher, Year.",
+    "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
+    "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
     "Look for publication facts on copyright/title-page verso pages: publisher name, publication place, and publication year.",
     "When city, publisher, and year are visible, the entry must end with City: Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
     "Include volume, translator, edition, or editor details only when they are clearly visible and bibliographically important.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
     "Ignore ISBN, copyright boilerplate, library-cataloging blocks, table-of-contents lines, and chapter-title lines.",
-    "Return JSON only, with this shape: {\"heading\":\"...\"}.",
+    "Return JSON only, with this shape: {\"contributor\":\"...\",\"title\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\"}.",
     "",
     excerpts || "No selectable text was extracted. Read the attached front-matter page images.",
   ].join("\n");
@@ -152,7 +152,61 @@ async function suggestHeadingWithGemini(lines, images, env) {
   const data = JSON.parse(text || "{}");
   const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const parsed = JSON.parse(responseText || "{}");
-  return cleanCitationText(parsed.heading || "");
+  return buildAiCitation(parsed);
+}
+
+function buildAiCitation(parsed) {
+  const contributor = cleanCitationText(parsed.contributor || "");
+  const title = cleanCitationText(parsed.title || "");
+  const series = cleanCitationText(parsed.series || "");
+  const seriesNumber = cleanCitationText(parsed.seriesNumber || "");
+  const city = cleanCitationText(parsed.city || "");
+  const publisher = cleanCitationText(parsed.publisher || "");
+  const year = cleanCitationText(parsed.year || "");
+  const fallbackHeading = cleanCitationText(parsed.heading || "");
+
+  const parts = [];
+  if (contributor) {
+    parts.push(trimTerminalPeriod(contributor));
+  }
+  if (title) {
+    parts.push(trimTerminalPeriod(title));
+  }
+  if (series || seriesNumber) {
+    parts.push(trimTerminalPeriod([series, seriesNumber].filter(Boolean).join(", ")));
+  }
+
+  let citation = parts.length > 0
+    ? parts.join(". ") + "."
+    : fallbackHeading;
+
+  const publication = buildPublicationBlock(city, publisher, year);
+  if (publication && !citationIncludesPublication(citation, publication)) {
+    citation = `${trimTerminalPeriod(citation)}. ${publication}.`;
+  }
+
+  return cleanCitationText(citation);
+}
+
+function buildPublicationBlock(city, publisher, year) {
+  if (city && publisher && year) {
+    return `${city}: ${publisher}, ${year}`;
+  }
+  if (city && publisher) {
+    return `${city}: ${publisher}`;
+  }
+  if (publisher && year) {
+    return `${publisher}, ${year}`;
+  }
+  return publisher || year || city || "";
+}
+
+function citationIncludesPublication(citation, publication) {
+  return citation.toLowerCase().includes(publication.toLowerCase());
+}
+
+function trimTerminalPeriod(text) {
+  return String(text || "").replace(/[.\s]+$/g, "").trim();
 }
 
 function buildHeadingSuggestion(lines) {
