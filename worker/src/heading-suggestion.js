@@ -9,7 +9,8 @@ export async function handleSuggestHeading(request, env, helpers) {
   helpers.requireStaffPasswordValue(body.password, env);
 
   const lines = normalizeHeadingLines(body.lines);
-  if (lines.length === 0) {
+  const images = normalizeHeadingImages(body.images);
+  if (lines.length === 0 && images.length === 0) {
     return helpers.json({
       heading: "",
       source: "none",
@@ -18,7 +19,7 @@ export async function handleSuggestHeading(request, env, helpers) {
   }
 
   if (env.GEMINI_API_KEY) {
-    const aiHeading = await suggestHeadingWithGemini(lines, env).catch(error => {
+    const aiHeading = await suggestHeadingWithGemini(lines, images, env).catch(error => {
       console.warn("Gemini heading suggestion failed", {
         message: error.message || String(error),
       });
@@ -39,7 +40,9 @@ export async function handleSuggestHeading(request, env, helpers) {
     source: "heuristic",
     note: env.GEMINI_API_KEY
       ? "AI did not return a usable heading, so the Worker used the local fallback."
-      : "No AI key is configured, so the Worker used the local fallback.",
+      : images.length > 0
+        ? "This PDF may be scanned. Add a GEMINI_API_KEY Worker secret to read title-page images."
+        : "No AI key is configured, so the Worker used the local fallback.",
   }, request, env);
 }
 
@@ -67,7 +70,29 @@ function normalizeHeadingLines(rawLines) {
     .filter(line => isUsefulFrontMatterLine(line.text));
 }
 
-async function suggestHeadingWithGemini(lines, env) {
+function normalizeHeadingImages(rawImages) {
+  if (!Array.isArray(rawImages)) {
+    return [];
+  }
+
+  return rawImages
+    .slice(0, 3)
+    .map(image => {
+      if (!image || typeof image !== "object") {
+        return null;
+      }
+
+      const mimeType = String(image.mimeType || "image/jpeg").toLowerCase();
+      const data = String(image.data || "").replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
+      if (!/^image\/(jpeg|png|webp)$/.test(mimeType) || !/^[A-Za-z0-9+/=]+$/.test(data)) {
+        return null;
+      }
+      return { mimeType, data };
+    })
+    .filter(Boolean);
+}
+
+async function suggestHeadingWithGemini(lines, images, env) {
   const model = env.GEMINI_MODEL || "gemini-2.5-flash";
   const excerpts = lines
     .slice(0, 80)
@@ -83,8 +108,18 @@ async function suggestHeadingWithGemini(lines, env) {
     "If an editor is clearly the main responsible person and no author is visible, use Editor Name, ed., Book Title.",
     "Return JSON only, with this shape: {\"heading\":\"...\"}.",
     "",
-    excerpts,
+    excerpts || "No selectable text was extracted. Read the attached front-matter page images.",
   ].join("\n");
+
+  const parts = [{ text: prompt }];
+  for (const image of images) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.data,
+      },
+    });
+  }
 
   const response = await fetch(`${GEMINI_GENERATE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
     method: "POST",
@@ -93,7 +128,7 @@ async function suggestHeadingWithGemini(lines, env) {
       contents: [
         {
           role: "user",
-          parts: [{ text: prompt }],
+          parts,
         },
       ],
       generationConfig: {
