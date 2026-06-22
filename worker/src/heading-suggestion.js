@@ -1090,10 +1090,12 @@ function normalizeResponsibilityStatement(text) {
 }
 
 function normalizeAiCitationText(text) {
-  return cleanCitationText(text).replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
+  const cleaned = cleanCitationText(text).replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
     const normalizedConnector = /^par$/i.test(connector) ? "par" : "by";
     return `${normalizedConnector} ${normalizeContributorName(names)}${spacing}`;
   });
+
+  return normalizeLeadingInvertedInitialAuthorHeading(cleaned);
 }
 
 function formatResponsibilityRoles(lines) {
@@ -1108,6 +1110,34 @@ function normalizeContributorName(text) {
         ? word.charAt(0).toLocaleUpperCase("fr") + word.slice(1).toLocaleLowerCase("fr")
         : word
     ));
+}
+
+function normalizeLeadingInvertedInitialAuthorHeading(text) {
+  const cleaned = cleanCitationText(text);
+  const leading = splitLeadingInvertedInitialAuthor(cleaned);
+  if (!leading) {
+    return cleaned;
+  }
+
+  return cleanCitationText(`${leading.author} ${leading.rest}`);
+}
+
+function splitLeadingInvertedInitialAuthor(text) {
+  const cleaned = cleanCitationText(text);
+  const match = cleaned.match(/^([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,3}),\s*(?:and\s+)?(((?:[\p{Lu}][\p{L}'’-]*\.?\s+){0,3}[A-Z]\.))\s+(.+)$/u);
+  if (!match) {
+    return null;
+  }
+
+  const rest = cleanCitationText(match[4]);
+  if (!/^[`'‘’"“”]?\p{Lu}/u.test(rest)) {
+    return null;
+  }
+
+  return {
+    author: cleanCitationText(`${match[1]}, ${match[2]}`),
+    rest,
+  };
 }
 
 function stripNameCredentials(text) {

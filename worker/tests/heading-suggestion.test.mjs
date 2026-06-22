@@ -190,6 +190,27 @@ test("credential initials are removed before author splitting", async () => {
   assert.doesNotMatch(result.heading, /Ph\.?D|M\.?D/i);
 });
 
+test("AI heading-only citation repairs malformed inverted initial author", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      heading: "Robinson, and Haddon W. Biblical Preaching: The Development and Delivery of Expository Messages. Fourth Edition. Bible Baptist Theological Seminary Press, 2025.",
+      visibleEvidence: {
+        heading: "Haddon W. Robinson Biblical Preaching The Development and Delivery of Expository Messages Fourth Edition Bible Baptist Theological Seminary Press 2025",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Robinson, Haddon W. Biblical Preaching: The Development and Delivery of Expository Messages. Fourth Edition. Bible Baptist Theological Seminary Press, 2025."
+  );
+  assert.doesNotMatch(result.heading, /Robinson,\s+and\s+Haddon/);
+});
+
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
   const images = Array.from({ length: 12 }, (_, index) => ({
     pageNumber: index + 1,
