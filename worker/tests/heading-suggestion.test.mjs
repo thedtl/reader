@@ -31,25 +31,29 @@ const helpers = {
   },
 };
 
-async function requestSuggestion({ parsedAiResponse, env = {}, lines = BIEREMA_LINES } = {}) {
+async function requestSuggestion({ parsedAiResponse, env = {}, lines = BIEREMA_LINES, images = [] } = {}) {
   const originalFetch = globalThis.fetch;
+  let geminiRequestBody = null;
   if (parsedAiResponse) {
-    globalThis.fetch = async () => new Response(JSON.stringify({
+    globalThis.fetch = async (url, init) => {
+      geminiRequestBody = JSON.parse(init?.body || "{}");
+      return new Response(JSON.stringify({
       candidates: [{
         content: {
           parts: [{ text: JSON.stringify(parsedAiResponse) }],
         },
       }],
-    }), { status: 200 });
+      }), { status: 200 });
+    };
   }
 
   try {
     const request = new Request("https://example.test/suggest-heading", {
       method: "POST",
-      body: JSON.stringify({ password: "test", lines }),
+      body: JSON.stringify({ password: "test", lines, images }),
     });
     const response = await handleSuggestHeading(request, env, helpers);
-    return response.json();
+    return { ...(await response.json()), geminiRequestBody };
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -108,4 +112,25 @@ test("complete AI heading-only citation can pass when it includes extracted core
 
   assert.equal(result.source, "ai");
   assert.equal(result.heading, EXPECTED_BIEREMA_HEADING);
+});
+
+test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
+  const images = Array.from({ length: 12 }, (_, index) => ({
+    pageNumber: index + 1,
+    mimeType: "image/jpeg",
+    data: "ZmFrZQ==",
+  }));
+
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images,
+    parsedAiResponse: {
+      heading: "",
+      visibleEvidence: {},
+    },
+  });
+
+  const parts = result.geminiRequestBody.contents[0].parts;
+  assert.equal(parts.filter(part => part.inlineData).length, 12);
 });

@@ -76,7 +76,7 @@ function normalizeHeadingImages(rawImages) {
   }
 
   return rawImages
-    .slice(0, 8)
+    .slice(0, 12)
     .map(image => {
       if (!image || typeof image !== "object") {
         return null;
