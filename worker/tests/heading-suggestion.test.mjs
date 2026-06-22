@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { handleSuggestHeading } from "../src/heading-suggestion.js";
 
-const EXPECTED_BIEREMA_HEADING = "Bierema, Laura L., Monica Fedeli, and Sharan B. Merriam. Adult Learning: Linking Theory and Practice. Second edition. John Wiley & Sons, Inc., 2025.";
+const EXPECTED_BIEREMA_HEADING = "Bierema, Laura L., Monica Fedeli, and Sharan B. Merriam. Adult Learning: Linking Theory and Practice. Second edition. Hoboken, New Jersey: John Wiley & Sons, Inc., 2025.";
 
 const BIEREMA_LINES = [
   { text: "ADULT LEARNING", pageNumber: 1, fontSize: 30 },
@@ -162,7 +162,7 @@ test("AI structured responsibility field is normalized before citation assembly"
   assert.equal(result.source, "ai");
   assert.equal(
     result.heading,
-    "Bonaventure. Itinéraire de l'esprit jusqu'en Dieu. Introduction, notes et glossaire par Laure Solignac, traduction par André Ménard. Translatio Philosophies Médiévales. Librairie Philosophique J. Vrin, 2019."
+    "Bonaventure. Itinéraire de l'esprit jusqu'en Dieu. Introduction, notes et glossaire par Laure Solignac, traduction par André Ménard. Translatio Philosophies Médiévales. Paris: Librairie Philosophique J. Vrin, 2019."
   );
 });
 
@@ -292,7 +292,7 @@ test("non-title citation fields keep original script without bracketed romanizat
       series: "영성 목회 시리즈 [Spiritual Pastoral Care Series]",
       seriesNumber: "2",
       city: "서울 [Seoul]",
-      publisher: "도서출판 은성 [Doseochulpan Eunseong]",
+      publisher: "은성",
       year: "2011",
       visibleEvidence: {
         contributor: "Howard Rice",
@@ -310,9 +310,9 @@ test("non-title citation fields keep original script without bracketed romanizat
   assert.equal(result.source, "ai");
   assert.equal(
     result.heading,
-    "Rice, Howard. 영성 목회와 영적 지도 [The Pastor as Spiritual Guide]. Translated by 최대형. 영성 목회 시리즈, 2. 도서출판 은성, 2011."
+    "Rice, Howard. 영성 목회와 영적 지도 [The Pastor as Spiritual Guide]. Translated by 최대형. 영성 목회 시리즈, 2. 서울: 도서출판 은성, 2011."
   );
-  assert.doesNotMatch(result.heading, /Choi|Dae-Hyung|Seoul|Doseochulpan|Spiritual Pastoral Care Series/);
+  assert.doesNotMatch(result.heading, /Choi|Dae-Hyung|Doseochulpan|Spiritual Pastoral Care Series/);
 });
 
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {

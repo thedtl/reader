@@ -116,7 +116,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
     "For titles, never put a romanization or transliteration in the square brackets. Use the translated title in square brackets instead, for example: 영성 목회와 영적 지도 [The Pastor as Spiritual Guide], not 영성 목회와 영적 지도 [Yeongseong Mokhoe wa Yeongjeok Jido]: The Pastor as Spiritual Guide.",
     "For any non-Latin-script title/subtitle pair, do not bracket the main title and subtitle separately. Use one bracketed English equivalent after the full non-Latin title/subtitle, for example: 성경 강해설교: 강해설교 전개와 전달 [Biblical Preaching: The Development and Delivery of Expository Messages].",
-    "Do not translate, romanize, or bracket equivalents for series titles, place names, publisher names, or responsibility names. Keep those fields in the visible original form unless the source only shows a Latin-script form.",
+    "Do not translate, romanize, or bracket equivalents for series titles, place names, publisher names, or responsibility names. Keep those fields in the full visible original form unless the source only shows a Latin-script form.",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
     "For translator or responsibility statements, use Chicago-style natural order after the role, such as Translated by 최대형. Prefer the visible original-script name when present; do not invert it as Choi, Dae-Hyung and do not add a bracketed romanization.",
@@ -126,8 +126,8 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "An edition statement such as Second Edition is never the title by itself; put it in edition and keep looking for the actual title.",
     "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
     "Look for publication facts on copyright/title-page verso pages: publisher name, publication place, and publication year.",
-    "CMOS 18 no longer requires publication place. Omit place from the final entry even when visible, unless there is no publisher and the place is the only publication fact.",
-    "When publisher and year are clearly visible, the entry should end with Publisher, Year.",
+    "Include a visible publication place when clearly identified in the front matter.",
+    "When city, publisher, and year are clearly visible, the entry should end with City: Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
     "Include volume, translator, edition, revision/reprint, or editor details only when they are clearly visible and bibliographically important.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
@@ -189,8 +189,10 @@ function buildAiCitation(parsed, lines = []) {
   const series = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "series"));
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
   let edition = supportedAiField(parsed, evidence, "edition");
-  const city = supportedAiField(parsed, evidence, "city");
-  const publisher = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "publisher"));
+  const city = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "city"));
+  const publisher = stripNonTitleLatinBracketedEquivalents(
+    preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher)
+  );
   const year = supportedAiField(parsed, evidence, "year");
   const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
 
@@ -333,6 +335,12 @@ function normalizeEvidenceMap(rawEvidence) {
 }
 
 function buildPublicationBlock(city, publisher, year) {
+  if (city && publisher && year) {
+    return `${city}: ${publisher}, ${year}`;
+  }
+  if (city && publisher) {
+    return `${city}: ${publisher}`;
+  }
   if (publisher && year) {
     return `${publisher}, ${year}`;
   }
@@ -1183,6 +1191,25 @@ function preferOriginalScriptResponsibilityName(name, evidenceText) {
 
   const evidenceName = extractOriginalScriptResponsibilityName(evidenceText);
   return evidenceName || cleanedName;
+}
+
+function preferFullerOriginalScriptEvidenceValue(value, evidenceText) {
+  const cleanedValue = stripNonTitleLatinBracketedEquivalents(value);
+  const cleanedEvidence = stripNonTitleLatinBracketedEquivalents(evidenceText);
+  if (!cleanedValue || !cleanedEvidence) {
+    return cleanedValue;
+  }
+  if (!containsNonLatinScript(cleanedEvidence) || !cleanedEvidence.includes(cleanedValue)) {
+    return cleanedValue;
+  }
+  if (cleanedEvidence.length <= cleanedValue.length || cleanedEvidence.length > 80) {
+    return cleanedValue;
+  }
+  if (/[.;]/.test(cleanedEvidence)) {
+    return cleanedValue;
+  }
+
+  return cleanedEvidence;
 }
 
 function extractOriginalScriptResponsibilityName(text) {
