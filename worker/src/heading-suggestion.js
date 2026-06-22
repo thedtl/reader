@@ -214,7 +214,39 @@ async function suggestHeadingWithGemini(lines, images, hints, env) {
   const data = JSON.parse(text || "{}");
   const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const parsed = JSON.parse(responseText || "{}");
+  logAiCitationSummary(parsed);
   return buildAiCitation(parsed, lines, hints);
+}
+
+function logAiCitationSummary(parsed) {
+  if (!parsed || typeof parsed !== "object") {
+    return;
+  }
+
+  const evidence = parsed.visibleEvidence || parsed.evidence || {};
+  console.log("AI citation summary", {
+    contributor: compactLogValue(parsed.contributor),
+    title: compactLogValue(parsed.title),
+    edition: compactLogValue(parsed.edition),
+    city: compactLogValue(parsed.city),
+    publisher: compactLogValue(parsed.publisher),
+    year: compactLogValue(parsed.year),
+    heading: compactLogValue(parsed.heading),
+    evidence: {
+      edition: compactLogValue(evidence.edition),
+      city: compactLogValue(evidence.city),
+      publisher: compactLogValue(evidence.publisher),
+      year: compactLogValue(evidence.year),
+    },
+    warnings: Array.isArray(parsed.warnings)
+      ? parsed.warnings.map(warning => compactLogValue(warning)).filter(Boolean).slice(0, 4)
+      : [],
+  });
+}
+
+function compactLogValue(value) {
+  const cleaned = cleanCitationText(Array.isArray(value) ? value.join(" | ") : value || "");
+  return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }
 
 function buildAiCitation(parsed, lines = [], hints = {}) {
