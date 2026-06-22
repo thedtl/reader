@@ -381,7 +381,6 @@ test("clean AI heading wins over noisy support fields", async () => {
         city: "주소 서울시 강동구 양재대로81길 39, 202호",
         publisher: "발행처 도서출판 꿈미",
         year: "초판 2쇄 발행일 2023년 7월 18일",
-        heading: "이수인 미디어 리터러시 수업 인포데믹 시대의 그리스도인을 위한 서울시 도서출판 꿈미 2023",
       },
     },
   });

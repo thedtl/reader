@@ -217,7 +217,7 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
   const { sourceAuthorHint = "", sourceTitleHint = "" } = hints || {};
   const evidence = normalizeEvidenceMap(parsed.visibleEvidence || parsed.evidence || {});
   const lineFields = extractLineCitationFields(lines);
-  const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
+  const fallbackHeading = normalizeAiCitationText(supportedAiHeading(parsed, evidence));
 
   if (fallbackHeading) {
     if (hasCoreCitationFields(lineFields) && !headingIncludesExtractedCore(fallbackHeading, lineFields)) {
@@ -357,6 +357,33 @@ function supportedAiField(parsed, evidence, key, aliases = []) {
 
   console.warn("Dropped AI citation field without visible evidence", { field: key });
   return "";
+}
+
+function supportedAiHeading(parsed, evidence) {
+  const value = cleanCitationText(parsed.heading || "");
+  if (!value) {
+    return "";
+  }
+  if (evidence.heading || hasHeadingFieldEvidence(evidence)) {
+    return value;
+  }
+
+  console.warn("Dropped AI citation heading without supporting field evidence");
+  return "";
+}
+
+function hasHeadingFieldEvidence(evidence) {
+  return Boolean(
+    evidence.contributor ||
+    evidence.title ||
+    evidence.responsibilityStatement ||
+    evidence.responsibility ||
+    evidence.series ||
+    evidence.edition ||
+    evidence.city ||
+    evidence.publisher ||
+    evidence.year
+  );
 }
 
 function normalizeContributorFromEvidence(value, evidenceText = "") {
