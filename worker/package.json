@@ -5,7 +5,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "check": "node --check src/index.js"
+    "check": "node --check src/index.js && node --check src/heading-suggestion.js",
+    "test": "node --test tests/heading-suggestion.test.mjs"
   },
   "keywords": [],
   "author": "",

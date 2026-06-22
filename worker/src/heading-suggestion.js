@@ -106,6 +106,8 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For each non-empty field, put the exact supporting visible words in visibleEvidence using the same field name.",
     "If a field is likely but not explicitly visible, leave that field blank. Do not fill gaps from general knowledge, catalogs, memory, or assumptions.",
     "Extract separate bibliographic fields first, then create one Chicago Manual of Style bibliography-style entry for the whole book or source.",
+    "If contributor or title cannot be filled from visible evidence, leave heading blank rather than guessing a final citation.",
+    "The heading must match the structured contributor and title fields; do not return a final heading that uses a different title or turns title words into an author.",
     "Use this final style when the facts are visible: Last Name, First Name. Title: Subtitle. Responsibility statement. Series Title, volume/number. City: Publisher, Year.",
     "For a personal author shown as First Name Last Name, invert the author in the final bibliography heading as Last Name, First Name.",
     "Use the author name exactly as it appears on the title page. Do not expand, correct, or formalize it from copyright text; for example, if the title page says Tim Arnold and the copyright page says Timothy Arnold, use Tim Arnold.",
@@ -168,7 +170,8 @@ async function suggestHeadingWithGemini(lines, images, env) {
 function buildAiCitation(parsed, lines = []) {
   const evidence = normalizeEvidenceMap(parsed.visibleEvidence || parsed.evidence || {});
   const lineFields = extractLineCitationFields(lines);
-  let contributor = preferTitlePageContributor(supportedAiField(parsed, evidence, "contributor"), lines);
+  const aiContributor = supportedAiField(parsed, evidence, "contributor");
+  let contributor = preferTitlePageContributor(aiContributor, lines);
   let title = supportedAiField(parsed, evidence, "title");
   const responsibilityStatement = supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]);
   const series = supportedAiField(parsed, evidence, "series");
@@ -179,8 +182,12 @@ function buildAiCitation(parsed, lines = []) {
   const year = supportedAiField(parsed, evidence, "year");
   const fallbackHeading = supportedAiField(parsed, evidence, "heading");
 
-  if (shouldRepairShiftedAiCitation({ contributor, title, edition }, lineFields)) {
+  if (shouldPreferExtractedCitationOverAi({ aiContributor, contributor, title, edition, fallbackHeading }, lineFields)) {
     return buildCitationFromExtractedFields(lineFields);
+  }
+
+  if (!title && fallbackHeading) {
+    return cleanCitationText(fallbackHeading);
   }
 
   const parts = [];
@@ -212,16 +219,56 @@ function buildAiCitation(parsed, lines = []) {
   return cleanCitationText(citation);
 }
 
-function shouldRepairShiftedAiCitation(fields, lineFields) {
-  if (!lineFields.contributor || !lineFields.title) {
+function shouldPreferExtractedCitationOverAi(fields, lineFields) {
+  if (!hasCoreCitationFields(lineFields)) {
     return false;
+  }
+
+  if (!fields.title && !headingIncludesExtractedCore(fields.fallbackHeading, lineFields)) {
+    return true;
   }
 
   if (fields.title && looksLikeEditionLine(fields.title)) {
     return true;
   }
 
-  return fields.contributor && titleContainsText(lineFields.title, fields.contributor);
+  if (fields.aiContributor && titleContainsText(lineFields.title, fields.aiContributor)) {
+    return true;
+  }
+
+  if (!fields.aiContributor && !fields.title && fields.fallbackHeading) {
+    return !headingIncludesExtractedCore(fields.fallbackHeading, lineFields);
+  }
+
+  return false;
+}
+
+function hasCoreCitationFields(fields) {
+  return Boolean(fields.contributor && fields.title);
+}
+
+function headingIncludesExtractedCore(heading, lineFields) {
+  return headingIncludesTitle(heading, lineFields.title) &&
+    headingIncludesContributor(heading, lineFields.contributor);
+}
+
+function headingIncludesTitle(heading, title) {
+  const headingKey = normalizeTitleComparison(heading);
+  const titleKey = normalizeTitleComparison(title);
+  return Boolean(headingKey && titleKey && headingKey.includes(titleKey));
+}
+
+function headingIncludesContributor(heading, contributor) {
+  const headingKey = normalizeTitleComparison(heading);
+  const lastNames = splitAuthorNames(contributor)
+    .map(name => comparableLastName(name))
+    .filter(Boolean);
+
+  if (lastNames.length === 0) {
+    return false;
+  }
+
+  return lastNames.every(lastName => headingKey.includes(lastName));
 }
 
 function titleContainsText(title, text) {
