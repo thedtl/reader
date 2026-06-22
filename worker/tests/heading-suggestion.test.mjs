@@ -315,6 +315,49 @@ test("non-title citation fields keep original script without bracketed romanizat
   assert.doesNotMatch(result.heading, /Choi|Dae-Hyung|Doseochulpan|Spiritual Pastoral Care Series|Page 4|발행처|2000/);
 });
 
+test("non-Latin comma author is kept as one author without added and", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "이, 수인",
+      title: "미디어 리터러시 수업 [Media Literacy Class]: 인포데믹 시대의 그리스도인을 위한 [For Christians in the Infodemic Era]",
+      publisher: "꾸밈",
+      visibleEvidence: {
+        contributor: "이수인",
+        title: "미디어 리터러시 수업 Media Literacy Class 인포데믹 시대의 그리스도인을 위한 For Christians in the Infodemic Era",
+        publisher: "꾸밈",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "이, 수인. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]."
+  );
+  assert.doesNotMatch(result.heading, /,\s+and\s+수인|꾸밈/);
+});
+
+test("Korean publication labels are accepted while production credits are ignored", async () => {
+  const result = await requestSuggestion({
+    lines: [
+      { text: "이수인", pageNumber: 1, fontSize: 16, index: 1 },
+      { text: "미디어 리터러시 수업", pageNumber: 1, fontSize: 28, index: 2 },
+      { text: "인포데믹 시대의 그리스도인을 위한", pageNumber: 1, fontSize: 18, index: 3 },
+      { text: "꾸밈: 홍길동", pageNumber: 4, fontSize: 10, index: 4 },
+      { text: "출판사 좋은씨앗", pageNumber: 4, fontSize: 10, index: 5 },
+      { text: "서울", pageNumber: 4, fontSize: 10, index: 6 },
+      { text: "2024년 3월 1일 발행", pageNumber: 4, fontSize: 10, index: 7 },
+    ],
+  });
+
+  assert.equal(result.source, "heuristic");
+  assert.match(result.heading, /서울: 좋은씨앗, 2024\./);
+  assert.doesNotMatch(result.heading, /꾸밈/);
+});
+
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
   const images = Array.from({ length: 12 }, (_, index) => ({
     pageNumber: index + 1,

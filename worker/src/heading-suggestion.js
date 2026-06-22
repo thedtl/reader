@@ -550,6 +550,10 @@ function splitAuthorNames(authorText) {
     .map(piece => trimAuthorName(piece))
     .filter(Boolean);
 
+  if (looksLikeSingleNonLatinAuthorName(cleaned, pieces)) {
+    return [cleaned];
+  }
+
   if (pieces.length <= 1) return pieces;
 
   const names = [];
@@ -564,6 +568,14 @@ function splitAuthorNames(authorText) {
   }
 
   return names;
+}
+
+function looksLikeSingleNonLatinAuthorName(cleaned, pieces) {
+  if (!containsNonLatinScript(cleaned)) return false;
+  if (pieces.length === 1) return true;
+  if (pieces.length !== 2) return false;
+  if (/\s+(?:and|&)\s+/i.test(cleaned)) return false;
+  return pieces.every(piece => piece.split(/\s+/).filter(Boolean).length <= 3);
 }
 
 function looksLikeInvertedAuthorPieces(lastName, givenNames) {
@@ -1060,6 +1072,8 @@ function parsePublisherLine(text) {
 function looksLikePublisherLine(text) {
   const cleaned = cleanFrontMatterLine(text);
   if (!cleaned || looksLikeResponsibilityRoleLine(cleaned)) return false;
+  if (looksLikeNonPublisherCredit(cleaned)) return false;
+  if (/^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?/u.test(cleaned)) return true;
   return /\b(press|publisher|publishers|publishing|university|college|éditions?|editiones|books?|inc\.?|co\.?|company|sarl|sons?|wiley|jossey|bass|guilford|excelsis|leaders for leaders|hana medical|cerf)\b/i.test(cleaned);
 }
 
@@ -1070,11 +1084,20 @@ function normalizePublisherName(text) {
     .replace(/\s+www\..*$/i, "")
     .replace(/\s+all rights reserved.*$/i, "")
     .replace(/[,;:]+$/g, "");
+  if (looksLikeNonPublisherCredit(cleaned)) return "";
   return /\b(inc|co|ltd|corp)\.$/i.test(cleaned) ? cleaned : cleaned.replace(/\.$/, "");
+}
+
+function looksLikeNonPublisherCredit(text) {
+  const cleaned = cleanFrontMatterLine(text);
+  return /^(?:꾸밈|디자인|표지|편집|제작|본문|교정|인쇄)(?=$|\s|[:：])/u.test(cleaned) ||
+    /(?:꾸밈|디자인|표지\s*디자인)\s*[:：]/u.test(cleaned);
 }
 
 function findPlaceInText(text) {
   const cleaned = cleanFrontMatterLine(text).replace(/\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b/ig, "");
+  const koreanPlace = cleaned.match(/(?:^|[\s,;:])((?:서울|서울시|부산|부산시|대구|대구시|인천|인천시|광주|광주시|대전|대전시|울산|울산시|세종|세종시|제주|제주시|[가-힣]{2,}(?:시|도|군)))(?=$|[\s,;:])/u);
+  if (koreanPlace) return koreanPlace[1];
   const matches = [...cleaned.matchAll(/\b([\p{Lu}][\p{L}' .-]+,\s*(?:[A-Z]{2}|[\p{Lu}][\p{L}' .-]+|France|Korea|New Jersey))\b/gu)];
   for (const match of matches.reverse()) {
     const place = cleanFrontMatterLine(match[1]).replace(/[.,;:]+$/g, "");
@@ -1321,6 +1344,7 @@ function looksLikeContributorName(text) {
   if (!cleaned || cleaned.length > 80) return false;
   if (/[0-9]/.test(cleaned)) return false;
   if (/\b(directeur|director|professor|universit|école|school|press|publisher)\b/i.test(cleaned)) return false;
+  if (containsNonLatinScript(cleaned) && /^[\p{L}\s,.·-]{2,20}$/u.test(cleaned)) return true;
   return cleaned.split(/\s+/).length >= 2;
 }
 
