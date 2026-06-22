@@ -106,6 +106,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "Use only the provided front-matter text and page images. Do not invent facts.",
     "Hallucination guardrail: every non-empty field must be supported by exact visible words in the text or images.",
     "For each non-empty field, put the exact supporting visible words in visibleEvidence using the same field name.",
+    "Do not include internal source markers such as page labels, page numbers, '(Page 4)', '[Page 4]', or similar locator notes in any citation field.",
     "If a field is likely but not explicitly visible, leave that field blank. Do not fill gaps from general knowledge, catalogs, memory, or assumptions.",
     "Extract separate bibliographic fields first, then create one Chicago Manual of Style bibliography-style entry for the whole book or source.",
     "If contributor or title cannot be filled from visible evidence, leave heading blank rather than guessing a final citation.",
@@ -126,6 +127,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "An edition statement such as Second Edition is never the title by itself; put it in edition and keep looking for the actual title.",
     "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
     "Look for publication facts on copyright/title-page verso pages: publisher name, publication place, and publication year.",
+    "If a page lists both an original or first-publication date and a later printing or edition date, use the later visible printing/edition date for this scanned copy.",
     "Include a visible publication place when clearly identified in the front matter.",
     "When city, publisher, and year are clearly visible, the entry should end with City: Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
@@ -190,10 +192,10 @@ function buildAiCitation(parsed, lines = []) {
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
   let edition = supportedAiField(parsed, evidence, "edition");
   const city = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "city"));
-  const publisher = stripNonTitleLatinBracketedEquivalents(
+  const publisher = normalizePublisherName(
     preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher)
   );
-  const year = supportedAiField(parsed, evidence, "year");
+  const year = normalizePublicationYear(supportedAiField(parsed, evidence, "year"), evidence.year);
   const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
 
   if (shouldPreferExtractedCitationOverAi({ aiContributor, contributor, title, edition, fallbackHeading }, lineFields)) {
@@ -345,6 +347,24 @@ function buildPublicationBlock(city, publisher, year) {
     return `${publisher}, ${year}`;
   }
   return publisher || year || city || "";
+}
+
+function normalizePublicationYear(year, evidenceText = "") {
+  const cleanedYear = cleanCitationText(year);
+  const evidence = cleanCitationText(evidenceText);
+  if (!evidence) {
+    return cleanedYear;
+  }
+
+  const KoreanIssueDatePattern = /(?:\d+\s*쇄|\d+\s*판|개정판|증보판|재판)\s*발행\s*(\d{4})/gu;
+  const issueYears = [...evidence.matchAll(KoreanIssueDatePattern)]
+    .map(match => match[1])
+    .filter(Boolean);
+  if (issueYears.length > 0) {
+    return issueYears[issueYears.length - 1];
+  }
+
+  return cleanedYear;
 }
 
 function citationIncludesPublication(citation, publication) {
@@ -1045,6 +1065,7 @@ function looksLikePublisherLine(text) {
 
 function normalizePublisherName(text) {
   const cleaned = cleanFrontMatterLine(text)
+    .replace(/^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?\s*/u, "")
     .replace(/\s+site internet\b.*$/i, "")
     .replace(/\s+www\..*$/i, "")
     .replace(/\s+all rights reserved.*$/i, "")
@@ -1321,6 +1342,8 @@ function isUsefulFrontMatterLine(text) {
 function cleanFrontMatterLine(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
+    .replace(/\s*\((?:p(?:age)?\.?\s*)?\d+\)\s*(?=[,.;:]|$)/ig, "")
+    .replace(/\s*\[\s*(?:p(?:age)?\.?\s*)?\d+\s*\]\s*(?=[,.;:]|$)/ig, "")
     .replace(/\s+([,.;:])/g, "$1")
     .replace(/([(["'])\s+/g, "$1")
     .replace(/\s+([)\]"'])/g, "$1")
@@ -1331,6 +1354,7 @@ function cleanAuthorLine(text) {
   return stripNameCredentials(repairSplitInitialSurname(cleanFrontMatterLine(text)
     .replace(/^by\s+/i, "")
     .replace(/^author\s*:\s*/i, "")
+    .replace(/^(?:지은이|저자|글쓴이|옮긴이|역자|번역)\s*[:：]?\s*/u, "")
     .replace(/\s+(?:지음|저|著)\s*$/u, "")))
     .trim();
 }

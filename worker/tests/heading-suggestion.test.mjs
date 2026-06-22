@@ -292,8 +292,8 @@ test("non-title citation fields keep original script without bracketed romanizat
       series: "영성 목회 시리즈 [Spiritual Pastoral Care Series]",
       seriesNumber: "2",
       city: "서울 [Seoul]",
-      publisher: "은성",
-      year: "2011",
+      publisher: "발행처 도서출판 은성 (Page 4)",
+      year: "2000",
       visibleEvidence: {
         contributor: "Howard Rice",
         title: "영성 목회와 영적 지도 The Pastor as Spiritual Guide",
@@ -302,7 +302,7 @@ test("non-title citation fields keep original script without bracketed romanizat
         seriesNumber: "2",
         city: "서울",
         publisher: "도서출판 은성",
-        year: "2011",
+        year: "초판발행 2000년 7월 20일 2쇄 발행 2011년 3월 20일",
       },
     },
   });
@@ -312,7 +312,7 @@ test("non-title citation fields keep original script without bracketed romanizat
     result.heading,
     "Rice, Howard. 영성 목회와 영적 지도 [The Pastor as Spiritual Guide]. Translated by 최대형. 영성 목회 시리즈, 2. 서울: 도서출판 은성, 2011."
   );
-  assert.doesNotMatch(result.heading, /Choi|Dae-Hyung|Doseochulpan|Spiritual Pastoral Care Series/);
+  assert.doesNotMatch(result.heading, /Choi|Dae-Hyung|Doseochulpan|Spiritual Pastoral Care Series|Page 4|발행처|2000/);
 });
 
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
