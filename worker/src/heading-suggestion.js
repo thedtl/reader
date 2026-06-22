@@ -166,6 +166,7 @@ async function suggestHeadingWithGemini(lines, images, hints, env) {
     "For Korean title pages, the largest title line is usually the main title. A smaller line above it may be a subtitle; cite as main title: subtitle even if the subtitle is printed above the main title.",
     "For Korean author lines, remove role markers such as 지음 and 지은이. Carefully distinguish names such as 이수인 from 이수민; if a Latin hint says Lee Su-in and the page image supports 이수인, use 이수인.",
     "Read Korean publisher names carefully: 꿈미 is not 꾸밈. Prefer final imprint lines labeled 발행처 over cover logos or production credits. If 도서출판 꿈미, coommi, coommi.org, or coommimall appears, publisher is 도서출판 꿈미.",
+    "When visibleEvidence.publisher contains a labeled imprint publisher, copy that exact publisher name into publisher and into the final heading. Do not shorten 도서출판 꿈미 to 꿈미, do not rewrite it as 꾸밈, and do not use a design/production credit as publisher.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
     "Ignore ISBN, copyright boilerplate, library-cataloging blocks, table-of-contents lines, and chapter-title lines.",
     "Return JSON only, with this shape: {\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\",\"visibleEvidence\":{\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\"},\"warnings\":[\"...\"]}.",
@@ -220,7 +221,10 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
   const { sourceAuthorHint = "", sourceTitleHint = "" } = hints || {};
   const evidence = normalizeEvidenceMap(parsed.visibleEvidence || parsed.evidence || {});
   const lineFields = extractLineCitationFields(lines);
-  const fallbackHeading = normalizeAiCitationText(supportedAiHeading(parsed, evidence));
+  const publicationFields = extractSupportedPublicationFields(parsed, evidence);
+  const fallbackHeading = normalizeAiCitationText(
+    reconcileAiHeadingPublication(supportedAiHeading(parsed, evidence), publicationFields)
+  );
 
   if (fallbackHeading) {
     if (hasCoreCitationFields(lineFields) && !headingIncludesExtractedCore(fallbackHeading, lineFields)) {
@@ -243,11 +247,7 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
   const series = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "series"));
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
   let edition = normalizeEditionStatement(supportedAiField(parsed, evidence, "edition"));
-  const city = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "city"));
-  const publisher = normalizePublisherName(
-    preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher)
-  );
-  const year = normalizePublicationYear(supportedAiField(parsed, evidence, "year"), evidence.year);
+  const { city, publisher, year } = publicationFields;
 
   if (shouldPreferExtractedCitationOverAi({ aiContributor, title, edition }, lineFields)) {
     return buildCitationFromExtractedFields(lineFields);
@@ -387,6 +387,50 @@ function hasHeadingFieldEvidence(evidence) {
     evidence.publisher ||
     evidence.year
   );
+}
+
+function extractSupportedPublicationFields(parsed, evidence) {
+  const city = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "city"));
+  const publisher = normalizePublisherName(
+    preferLabeledPublisherEvidence(
+      preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher),
+      evidence.publisher
+    )
+  );
+  const year = normalizePublicationYear(supportedAiField(parsed, evidence, "year"), evidence.year);
+  return { city, publisher, year };
+}
+
+function reconcileAiHeadingPublication(heading, publicationFields) {
+  const cleaned = cleanCitationText(heading);
+  if (!cleaned || !publicationFields?.publisher) {
+    return cleaned;
+  }
+
+  const publication = buildPublicationBlock(publicationFields.city, publicationFields.publisher, publicationFields.year);
+  if (!publication || citationIncludesPublication(cleaned, publication)) {
+    return cleaned;
+  }
+
+  const city = publicationFields.city ? escapeRegExp(publicationFields.city) : "";
+  const year = publicationFields.year ? escapeRegExp(publicationFields.year) : "";
+  const trimmed = trimTerminalPeriod(cleaned);
+
+  if (city && year) {
+    const tailPattern = new RegExp(`(\\.\\s*)${city}\\s*:\\s*[^.]+?,\\s*${year}$`, "u");
+    if (tailPattern.test(trimmed)) {
+      return `${trimmed.replace(tailPattern, `$1${publication}`)}.`;
+    }
+  }
+
+  if (year) {
+    const tailPattern = new RegExp(`(\\.\\s*)[^.]+?,\\s*${year}$`, "u");
+    if (tailPattern.test(trimmed)) {
+      return `${trimmed.replace(tailPattern, `$1${publication}`)}.`;
+    }
+  }
+
+  return cleaned;
 }
 
 function normalizeContributorFromEvidence(value, evidenceText = "") {
@@ -1370,6 +1414,18 @@ function preferFullerOriginalScriptEvidenceValue(value, evidenceText) {
   return cleanedEvidence;
 }
 
+function preferLabeledPublisherEvidence(value, evidenceText) {
+  const cleanedValue = stripNonTitleLatinBracketedEquivalents(value);
+  const evidencePublisher = normalizePublisherName(evidenceText);
+  if (!evidencePublisher) {
+    return cleanedValue;
+  }
+  if (/^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?/u.test(cleanCitationText(evidenceText))) {
+    return evidencePublisher;
+  }
+  return cleanedValue || evidencePublisher;
+}
+
 function extractOriginalScriptResponsibilityName(text) {
   const cleaned = cleanCitationText(text);
   if (!containsNonLatinScript(cleaned)) {
@@ -1465,6 +1521,10 @@ function looksLikeContributorName(text) {
 function sentenceCaseText(text) {
   const cleaned = cleanCitationText(text).toLocaleLowerCase("fr");
   return cleaned ? cleaned.charAt(0).toLocaleUpperCase("fr") + cleaned.slice(1) : "";
+}
+
+function escapeRegExp(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isUsefulFrontMatterLine(text) {
