@@ -114,6 +114,82 @@ test("complete AI heading-only citation can pass when it includes extracted core
   assert.equal(result.heading, EXPECTED_BIEREMA_HEADING);
 });
 
+test("AI responsibility text normalizes all-caps names and removes order credentials", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      heading: "Bonaventure, Itinéraire de l'esprit jusqu'en Dieu, Introduction, notes et glossaire par Laure SOLIGNAC, traduction par André MÉNARD ofmcap, Translatio Philosophies Médiévales (Paris: Librairie Philosophique J. Vrin, 2019).",
+      visibleEvidence: {
+        heading: "Bonaventure Itinéraire de l'esprit jusqu'en Dieu Introduction, notes et glossaire par Laure SOLIGNAC traduction par André MÉNARD ofmcap Translatio Philosophies Médiévales Paris Librairie Philosophique J. Vrin 2019",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.match(result.heading, /Laure Solignac/);
+  assert.match(result.heading, /André Ménard/);
+  assert.doesNotMatch(result.heading, /SOLIGNAC|MÉNARD/);
+  assert.doesNotMatch(result.heading, /ofmcap/i);
+});
+
+test("AI structured responsibility field is normalized before citation assembly", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Bonaventure",
+      title: "Itinéraire de l'esprit jusqu'en Dieu",
+      responsibilityStatement: "Introduction, notes et glossaire par Laure SOLIGNAC, traduction par André MÉNARD ofmcap",
+      series: "Translatio Philosophies Médiévales",
+      city: "Paris",
+      publisher: "Librairie Philosophique J. Vrin",
+      year: "2019",
+      visibleEvidence: {
+        contributor: "Bonaventure",
+        title: "Itinéraire de l'esprit jusqu'en Dieu",
+        responsibilityStatement: "Introduction, notes et glossaire par Laure SOLIGNAC, traduction par André MÉNARD ofmcap",
+        series: "Translatio Philosophies Médiévales",
+        city: "Paris",
+        publisher: "Librairie Philosophique J. Vrin",
+        year: "2019",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Bonaventure. Itinéraire de l'esprit jusqu'en Dieu. Introduction, notes et glossaire par Laure Solignac, traduction par André Ménard. Translatio Philosophies Médiévales. Paris: Librairie Philosophique J. Vrin, 2019."
+  );
+});
+
+test("credential initials are removed before author splitting", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Tim Arnold, Ph.D., Maya Rao, M.D.",
+      title: "Credential Test",
+      publisher: "Example Press",
+      year: "2026",
+      visibleEvidence: {
+        contributor: "Tim Arnold, Ph.D., Maya Rao, M.D.",
+        title: "Credential Test",
+        publisher: "Example Press",
+        year: "2026",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(result.heading, "Arnold, Tim, and Maya Rao. Credential Test. Example Press, 2026.");
+  assert.doesNotMatch(result.heading, /Ph\.?D|M\.?D/i);
+});
+
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
   const images = Array.from({ length: 12 }, (_, index) => ({
     pageNumber: index + 1,

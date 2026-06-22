@@ -1,4 +1,6 @@
 const GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
+const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
 
 export async function handleSuggestHeading(request, env, helpers) {
   const body = await request.json().catch(() => null);
@@ -114,6 +116,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
     "For French title-page statements such as 'TEXTE LATIN / INTRODUCTION, BIBLIOGRAPHIE / TRADUCTION ET NOTES / par / René Roques', include: Texte latin, introduction, bibliographie, traduction et notes par René Roques.",
+    "Normalize OCR all-caps surnames in responsibility names, such as Laure SOLIGNAC, to normal name capitalization. Omit trailing credential initials and religious/order credentials such as Ph.D., S.J., O.P., and OFM Cap. from all contributor names unless the credential is part of a title.",
     "Do not put title, subtitle, series, or edition text in contributor. For example, if a title page says 'ADULT LEARNING / Linking Theory and Practice / Second Edition / Laura L. Bierema, Monica Fedeli, Sharan B. Merriam', contributor is the three named people, title is Adult Learning: Linking Theory and Practice, and edition is Second Edition.",
     "An edition statement such as Second Edition is never the title by itself; put it in edition and keep looking for the actual title.",
     "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
@@ -173,14 +176,14 @@ function buildAiCitation(parsed, lines = []) {
   const aiContributor = supportedAiField(parsed, evidence, "contributor");
   let contributor = preferTitlePageContributor(aiContributor, lines);
   let title = supportedAiField(parsed, evidence, "title");
-  const responsibilityStatement = supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]);
+  const responsibilityStatement = normalizeResponsibilityStatement(supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]));
   const series = supportedAiField(parsed, evidence, "series");
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
   let edition = supportedAiField(parsed, evidence, "edition");
   const city = supportedAiField(parsed, evidence, "city");
   const publisher = supportedAiField(parsed, evidence, "publisher");
   const year = supportedAiField(parsed, evidence, "year");
-  const fallbackHeading = supportedAiField(parsed, evidence, "heading");
+  const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
 
   if (shouldPreferExtractedCitationOverAi({ aiContributor, contributor, title, edition, fallbackHeading }, lineFields)) {
     return buildCitationFromExtractedFields(lineFields);
@@ -216,7 +219,7 @@ function buildAiCitation(parsed, lines = []) {
     citation = `${trimTerminalPeriod(citation)}. ${publication}.`;
   }
 
-  return cleanCitationText(citation);
+  return normalizeAiCitationText(citation);
 }
 
 function shouldPreferExtractedCitationOverAi(fields, lineFields) {
@@ -1071,6 +1074,10 @@ function looksLikeResponsibilityRoleLine(text) {
 
 function normalizeResponsibilityStatement(text) {
   const cleaned = cleanCitationText(text);
+  if (!cleaned) {
+    return "";
+  }
+
   const match = cleaned.match(/^(.*?)\b(by|par)\b\s+(.+)$/i);
   if (!match) {
     return sentenceCaseText(cleaned);
@@ -1082,18 +1089,48 @@ function normalizeResponsibilityStatement(text) {
   return cleanCitationText(`${role} ${connector} ${name}`);
 }
 
+function normalizeAiCitationText(text) {
+  return cleanCitationText(text).replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
+    const normalizedConnector = /^par$/i.test(connector) ? "par" : "by";
+    return `${normalizedConnector} ${normalizeContributorName(names)}${spacing}`;
+  });
+}
+
 function formatResponsibilityRoles(lines) {
   return sentenceCaseText(cleanCitationText(lines.join(", ")));
 }
 
 function normalizeContributorName(text) {
-  return cleanCitationText(text)
+  return stripNameCredentials(text)
     .replace(/[.,;:]+$/g, "")
     .replace(/\b[\p{L}'’-]+\b/gu, word => (
       word.length > 1 && word === word.toLocaleUpperCase("fr")
         ? word.charAt(0).toLocaleUpperCase("fr") + word.slice(1).toLocaleLowerCase("fr")
         : word
     ));
+}
+
+function stripNameCredentials(text) {
+  let cleaned = cleanCitationText(text)
+    .replace(/^[`'‘’"“”]+/g, "")
+    .replace(new RegExp(`\\s*,\\s*${COMMA_NAME_CREDENTIAL_PATTERN}\\.?\\s*(?=,)`, "giu"), "")
+    .replace(new RegExp(`\\s+${NAME_CREDENTIAL_PATTERN}\\.?\\s*(?=,)`, "giu"), "");
+
+  let previous = "";
+  while (cleaned && cleaned !== previous) {
+    previous = cleaned;
+    cleaned = cleaned
+      .replace(new RegExp(`\\s*,\\s*${COMMA_NAME_CREDENTIAL_PATTERN}\\.?\\s*$`, "iu"), "")
+      .replace(new RegExp(`\\s+${NAME_CREDENTIAL_PATTERN}\\.?\\s*$`, "iu"), "")
+      .replace(/[,\s]+$/g, "")
+      .trim();
+  }
+
+  if (new RegExp(`^(?:${COMMA_NAME_CREDENTIAL_PATTERN}|${NAME_CREDENTIAL_PATTERN})\\.?$`, "iu").test(cleaned)) {
+    return "";
+  }
+
+  return cleaned;
 }
 
 function looksLikeContributorName(text) {
@@ -1129,10 +1166,10 @@ function cleanFrontMatterLine(text) {
 }
 
 function cleanAuthorLine(text) {
-  return repairSplitInitialSurname(cleanFrontMatterLine(text)
+  return stripNameCredentials(repairSplitInitialSurname(cleanFrontMatterLine(text)
     .replace(/^by\s+/i, "")
     .replace(/^author\s*:\s*/i, "")
-    .replace(/\s+(?:지음|저|著)\s*$/u, ""))
+    .replace(/\s+(?:지음|저|著)\s*$/u, "")))
     .trim();
 }
 
