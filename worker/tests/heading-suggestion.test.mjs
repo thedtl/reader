@@ -440,6 +440,9 @@ test("Worker forwards rendered front and imprint images to Gemini", async () => 
   });
 
   const parts = result.geminiRequestBody.contents[0].parts;
+  const prompt = parts[0].text;
   assert.equal(parts.filter(part => part.inlineData).length, 18);
   assert(parts.some(part => part.text === "Rendered PDF page 332"));
+  assert.match(prompt, /박성덕 \[Park Sung-deok\]/);
+  assert.match(prompt, /Do not use a translated title, filename, URL slug, MMS ID, or other source identifier as the bracketed contributor form/);
 });
