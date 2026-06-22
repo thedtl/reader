@@ -480,6 +480,47 @@ test("structured editor contributors keep ed. with the author name", async () =>
   assert.doesNotMatch(result.heading, /Barry J\. Beitzel, ed\.|and ed\.|General Editor/);
 });
 
+test("prompt tells AI to omit collaborator and ToC article names for whole edited books", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [
+      { text: "HUGUES COUSIN, JEAN-PIERRE LÉMONON, JEAN MASSONNET", pageNumber: 1, fontSize: 16 },
+      { text: "avec la collaboration de", pageNumber: 1, fontSize: 12 },
+      { text: "PHILIPPE ABADIE, JEAN COMBY, ANITA MÉASSON, FRANÇOIS RICHARD", pageNumber: 1, fontSize: 13 },
+      { text: "LE MONDE OÙ VIVAIT JÉSUS", pageNumber: 1, fontSize: 30 },
+      { text: "Ouvrage édité par HUGUES COUSIN", pageNumber: 1, fontSize: 14 },
+      { text: "Les Sadducéens Jean-Pierre Lémonon", pageNumber: 8, fontSize: 11 },
+      { text: "Les Samaritains Jean Massonnet", pageNumber: 8, fontSize: 11 },
+    ],
+    images: [{ pageNumber: 1, mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Hugues Cousin, ed.",
+      title: "Le monde où vivait Jésus",
+      city: "Paris",
+      publisher: "Les Éditions du Cerf",
+      year: "1998",
+      heading: "Cousin, Hugues, ed. Le monde où vivait Jésus. Paris: Les Éditions du Cerf, 1998.",
+      visibleEvidence: {
+        contributor: "Ouvrage édité par HUGUES COUSIN",
+        title: "LE MONDE OÙ VIVAIT JÉSUS",
+        city: "PARIS",
+        publisher: "LES ÉDITIONS DU CERF",
+        year: "1998",
+      },
+    },
+  });
+
+  const prompt = result.geminiRequestBody.contents[0].parts[0].text;
+  assert.equal(
+    result.heading,
+    "Cousin, Hugues, ed. Le monde où vivait Jésus. Paris: Les Éditions du Cerf, 1998."
+  );
+  assert.doesNotMatch(result.heading, /Lémonon|Massonnet|Abadie|Comby|Méasson|Richard|collaboration/i);
+  assert.match(prompt, /cite the whole book under that editor with ed\. or eds\./);
+  assert.match(prompt, /avec la collaboration de/);
+  assert.match(prompt, /chapter authors, article authors, or table-of-contents entries/);
+});
+
 test("Worker forwards rendered front and imprint images to Gemini", async () => {
   const images = Array.from({ length: 20 }, (_, index) => ({
     pageNumber: index < 12 ? index + 1 : 320 + index,
@@ -503,6 +544,7 @@ test("Worker forwards rendered front and imprint images to Gemini", async () => 
   assert(parts.some(part => part.text === "Rendered PDF page 332"));
   assert.match(prompt, /Do not split a single stacked title block into title plus series/);
   assert.match(prompt, /For editor labels such as General Editor, cite the role as ed\. or eds\./);
+  assert.match(prompt, /Do not treat names introduced only by with the collaboration of/);
   assert.match(prompt, /박성덕 \[Park Sung-deok\]/);
   assert.match(prompt, /Do not use a translated title, filename, URL slug, MMS ID, or other source identifier as the bracketed contributor form/);
 });

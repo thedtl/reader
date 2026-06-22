@@ -152,7 +152,9 @@ async function suggestHeadingWithGemini(lines, images, hints, env) {
     "Do not translate, romanize, or bracket equivalents for series titles, place names, publisher names, or responsibility names. Keep those fields in the full visible original form unless the source only shows a Latin-script form.",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "For editor labels such as General Editor, cite the role as ed. or eds. in contributor and heading. Do not write General Editor in the final heading.",
-    "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
+    "If the title page identifies a book-level editor with phrases such as edited by, ouvrage édité par, edited and introduced by, or texte établi par, cite the whole book under that editor with ed. or eds. unless a distinct author is clearly identified.",
+    "Do not treat names introduced only by with the collaboration of, avec la collaboration de, contributors, chapter authors, article authors, or table-of-contents entries as book-level authors/editors. Omit those names from the whole-book heading unless the request is for that specific chapter or article.",
+    "Never omit named title-page contributors who supply a specific book-level responsibility. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar book-level work, capture that as responsibilityStatement and include it after the title.",
     "For translator or responsibility statements, use Chicago-style natural order after the role, such as Translated by 최대형. Prefer the visible original-script name when present; do not invert it as Choi, Dae-Hyung and do not add a bracketed romanization.",
     "For French title-page statements such as 'TEXTE LATIN / INTRODUCTION, BIBLIOGRAPHIE / TRADUCTION ET NOTES / par / René Roques', include: Texte latin, introduction, bibliographie, traduction et notes par René Roques.",
     "Normalize OCR all-caps surnames in responsibility names, such as Laure SOLIGNAC, to normal name capitalization. Omit trailing credential initials and religious/order credentials such as Ph.D., S.J., O.P., and OFM Cap. from all contributor names unless the credential is part of a title.",
@@ -262,7 +264,11 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
   );
 
   if (fallbackHeading) {
-    if (hasCoreCitationFields(lineFields) && !headingIncludesExtractedCore(fallbackHeading, lineFields)) {
+    if (
+      hasCoreCitationFields(lineFields) &&
+      !headingIncludesExtractedCore(fallbackHeading, lineFields) &&
+      !shouldTrustEditedBookAiHeading(fallbackHeading, evidence)
+    ) {
       return buildCitationFromExtractedFields(lineFields);
     }
     return cleanCitationText(fallbackHeading);
@@ -422,6 +428,17 @@ function hasHeadingFieldEvidence(evidence) {
     evidence.publisher ||
     evidence.year
   );
+}
+
+function shouldTrustEditedBookAiHeading(heading, evidence) {
+  const cleanedHeading = cleanCitationText(heading);
+  const contributorEvidence = cleanCitationText(evidence.contributor || evidence.responsibilityStatement || evidence.responsibility || "");
+  if (!/,\s*eds?\./i.test(cleanedHeading)) {
+    return false;
+  }
+
+  return /\b(?:edited by|edited and introduced by|general editor|series editor)\b/i.test(contributorEvidence) ||
+    /\b(?:ouvrage\s+[ée]dit[ée]\s+par|texte\s+[ée]tabli\s+par)\b/iu.test(contributorEvidence);
 }
 
 function extractSupportedPublicationFields(parsed, evidence) {
