@@ -12,6 +12,8 @@ export async function handleSuggestHeading(request, env, helpers) {
 
   const lines = normalizeHeadingLines(body.lines);
   const images = normalizeHeadingImages(body.images);
+  const sourceAuthorHint = normalizeSourceAuthorHint(body.sourceAuthorHint);
+  const sourceTitleHint = normalizeSourceTitleHint(body.sourceTitleHint);
   if (lines.length === 0 && images.length === 0) {
     return helpers.json({
       heading: "",
@@ -21,7 +23,7 @@ export async function handleSuggestHeading(request, env, helpers) {
   }
 
   if (env.GEMINI_API_KEY) {
-    const aiHeading = await suggestHeadingWithGemini(lines, images, env).catch(error => {
+    const aiHeading = await suggestHeadingWithGemini(lines, images, { sourceAuthorHint, sourceTitleHint }, env).catch(error => {
       console.warn("Gemini heading suggestion failed", {
         message: error.message || String(error),
       });
@@ -94,7 +96,30 @@ function normalizeHeadingImages(rawImages) {
     .filter(Boolean);
 }
 
-async function suggestHeadingWithGemini(lines, images, env) {
+function normalizeSourceTitleHint(text) {
+  const cleaned = cleanCitationText(text)
+    .replace(/\bMMS\s+ID\b.*$/i, "")
+    .replace(/\bBookmarked\b.*$/i, "")
+    .replace(/\bPDF\b.*$/i, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned || containsNonLatinScript(cleaned)) return "";
+  return cleaned.length <= 140 ? cleaned : "";
+}
+
+function normalizeSourceAuthorHint(text) {
+  const cleaned = cleanCitationText(text)
+    .replace(/\bMMS\s+ID\b.*$/i, "")
+    .replace(/\bBookmarked\b.*$/i, "")
+    .replace(/\bPDF\b.*$/i, "")
+    .trim();
+  if (!cleaned || containsNonLatinScript(cleaned)) return "";
+  return cleaned.length <= 80 ? cleaned : "";
+}
+
+async function suggestHeadingWithGemini(lines, images, hints, env) {
+  const { sourceAuthorHint = "", sourceTitleHint = "" } = hints || {};
   const model = env.GEMINI_MODEL || "gemini-2.5-flash";
   const excerpts = lines
     .slice(0, 80)
@@ -115,7 +140,9 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For a personal author shown as First Name Last Name, invert the author in the final bibliography heading as Last Name, First Name.",
     "Use the author name exactly as it appears on the title page. Do not expand, correct, or formalize it from copyright text; for example, if the title page says Tim Arnold and the copyright page says Timothy Arnold, use Tim Arnold.",
     "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
+    "For non-Latin-script contributor names, include the English/Latin-script form in square brackets when a filename/author hint is provided below; do not replace the visible original-script name.",
     "For titles, never put a romanization or transliteration in the square brackets. Use the translated title in square brackets instead, for example: 영성 목회와 영적 지도 [The Pastor as Spiritual Guide], not 영성 목회와 영적 지도 [Yeongseong Mokhoe wa Yeongjeok Jido]: The Pastor as Spiritual Guide.",
+    "For non-Latin-script titles, always include one English translated title in square brackets. If a filename/title hint is provided below, use it only for this bracketed English title; do not use it to replace the visible original-script title or contributor.",
     "For any non-Latin-script title/subtitle pair, do not bracket the main title and subtitle separately. Use one bracketed English equivalent after the full non-Latin title/subtitle, for example: 성경 강해설교: 강해설교 전개와 전달 [Biblical Preaching: The Development and Delivery of Expository Messages].",
     "Do not translate, romanize, or bracket equivalents for series titles, place names, publisher names, or responsibility names. Keep those fields in the full visible original form unless the source only shows a Latin-script form.",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
@@ -132,11 +159,14 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "When city, publisher, and year are clearly visible, the entry should end with City: Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
     "Include volume, translator, edition, revision/reprint, or editor details only when they are clearly visible and bibliographically important.",
-    "For Korean books, publication facts may appear on a final imprint page with labels such as 발행처, 주소, and 초판/2쇄 발행일; use those visible facts when present.",
+    "For Korean books, publication facts may appear on a final imprint page with labels such as 발행처, 주소, and 초판/2쇄 발행일; use those visible facts when present. Do not include 초판 or 쇄 printing statements as edition unless the source explicitly says 판/edition as a bibliographic edition.",
+    "Read Korean publisher names carefully: 꿈미 is not 꾸밈. If 도서출판 꿈미 or coommi appears, publisher is 도서출판 꿈미.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
     "Ignore ISBN, copyright boilerplate, library-cataloging blocks, table-of-contents lines, and chapter-title lines.",
     "Return JSON only, with this shape: {\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\",\"visibleEvidence\":{\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\"},\"warnings\":[\"...\"]}.",
     "",
+    sourceAuthorHint ? `Filename/author hint for bracketed contributor form only: ${sourceAuthorHint}` : "",
+    sourceTitleHint ? `Filename/title hint for bracketed English title only: ${sourceTitleHint}` : "",
     excerpts || "No selectable text was extracted. Read the attached front-matter page images.",
   ].join("\n");
 
@@ -178,15 +208,19 @@ async function suggestHeadingWithGemini(lines, images, env) {
   const data = JSON.parse(text || "{}");
   const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const parsed = JSON.parse(responseText || "{}");
-  return buildAiCitation(parsed, lines);
+  return buildAiCitation(parsed, lines, hints);
 }
 
-function buildAiCitation(parsed, lines = []) {
+function buildAiCitation(parsed, lines = [], hints = {}) {
+  const { sourceAuthorHint = "", sourceTitleHint = "" } = hints || {};
   const evidence = normalizeEvidenceMap(parsed.visibleEvidence || parsed.evidence || {});
   const lineFields = extractLineCitationFields(lines);
-  const aiContributor = supportedAiField(parsed, evidence, "contributor");
+  const aiContributor = normalizeContributorField(
+    normalizeContributorFromEvidence(supportedAiField(parsed, evidence, "contributor"), evidence.contributor),
+    sourceAuthorHint
+  );
   let contributor = preferTitlePageContributor(aiContributor, lines);
-  let title = supportedAiField(parsed, evidence, "title");
+  let title = normalizeTitleField(supportedAiField(parsed, evidence, "title"), sourceTitleHint);
   const responsibilityEvidence = evidence.responsibilityStatement || evidence.responsibility || "";
   const responsibilityStatement = normalizeResponsibilityStatement(
     supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]),
@@ -194,7 +228,7 @@ function buildAiCitation(parsed, lines = []) {
   );
   const series = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "series"));
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
-  let edition = supportedAiField(parsed, evidence, "edition");
+  let edition = normalizeEditionStatement(supportedAiField(parsed, evidence, "edition"));
   const city = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "city"));
   const publisher = normalizePublisherName(
     preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher)
@@ -321,6 +355,54 @@ function supportedAiField(parsed, evidence, key, aliases = []) {
 
   console.warn("Dropped AI citation field without visible evidence", { field: key });
   return "";
+}
+
+function normalizeContributorFromEvidence(value, evidenceText = "") {
+  const cleaned = cleanAuthorLine(value);
+  const evidenceName = cleanAuthorLine(evidenceText);
+  if (/^[가-힣\s,·ㆍ-]{2,20}$/u.test(evidenceName) && evidenceName !== cleaned) {
+    return evidenceName;
+  }
+  return cleaned;
+}
+
+function normalizeContributorField(contributor, sourceAuthorHint = "") {
+  const cleaned = cleanAuthorLine(contributor);
+  const hint = normalizeSourceAuthorHint(sourceAuthorHint);
+  if (cleaned && hint && containsNonLatinScript(cleaned) && !/\[[^\[\]]+\]/u.test(cleaned)) {
+    return `${cleaned} [${hint}]`;
+  }
+  return cleaned;
+}
+
+function normalizeTitleField(title, sourceTitleHint = "") {
+  let cleaned = reorderKoreanLeadingSubtitleTitle(cleanCitationText(title));
+  const hint = normalizeSourceTitleHint(sourceTitleHint);
+  if (cleaned && hint && containsNonLatinScript(cleaned) && !/\[[^\[\]]+\]/u.test(cleaned)) {
+    cleaned = `${cleaned} [${hint}]`;
+  }
+  return cleaned;
+}
+
+function reorderKoreanLeadingSubtitleTitle(title) {
+  const cleaned = cleanCitationText(title);
+  if (!containsNonLatinScript(cleaned) || /[:：]/u.test(cleaned)) {
+    return cleaned;
+  }
+
+  const match = cleaned.match(/^(.{4,45}?을\s+위한)\s+(.{3,45})$/u);
+  if (!match) {
+    return cleaned;
+  }
+
+  return cleanCitationText(`${match[2]}: ${match[1]}`);
+}
+
+function normalizeEditionStatement(edition) {
+  const cleaned = cleanCitationText(edition);
+  if (/^(?:초판\s*)?\d+\s*쇄$/u.test(cleaned)) return "";
+  if (/^초판\s*\d+\s*쇄\s*발행(?:일)?/u.test(cleaned)) return "";
+  return cleaned;
 }
 
 function normalizeEvidenceMap(rawEvidence) {
@@ -1082,8 +1164,19 @@ function looksLikePublisherLine(text) {
 }
 
 function normalizePublisherName(text) {
-  const cleaned = cleanFrontMatterLine(text)
+  let cleaned = cleanFrontMatterLine(text);
+  const labeledPublisher = cleaned
+    .split(/\s*[,;]\s*/u)
+    .map(part => cleanFrontMatterLine(part))
+    .reverse()
+    .find(part => /^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?/u.test(part));
+  if (labeledPublisher) {
+    cleaned = labeledPublisher;
+  }
+
+  cleaned = cleaned
     .replace(/^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?\s*/u, "")
+    .replace(/도서출판\s*꾸밈/gu, "도서출판 꿈미")
     .replace(/\s+site internet\b.*$/i, "")
     .replace(/\s+www\..*$/i, "")
     .replace(/\s+all rights reserved.*$/i, "")
@@ -1094,7 +1187,7 @@ function normalizePublisherName(text) {
 
 function looksLikeNonPublisherCredit(text) {
   const cleaned = cleanFrontMatterLine(text);
-  return /^(?:꾸밈|디자인|표지|편집|제작|본문|교정|인쇄)(?=$|\s|[:：])/u.test(cleaned) ||
+  return /^(?:꾸밈|디자인|표지|편집|제작|본문|교정|인쇄)(?=$|\s|[,;:：])/u.test(cleaned) ||
     /(?:꾸밈|디자인|표지\s*디자인)\s*[:：]/u.test(cleaned);
 }
 

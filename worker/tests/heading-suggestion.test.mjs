@@ -31,7 +31,7 @@ const helpers = {
   },
 };
 
-async function requestSuggestion({ parsedAiResponse, env = {}, lines = BIEREMA_LINES, images = [] } = {}) {
+async function requestSuggestion({ parsedAiResponse, env = {}, lines = BIEREMA_LINES, images = [], sourceAuthorHint = "", sourceTitleHint = "" } = {}) {
   const originalFetch = globalThis.fetch;
   let geminiRequestBody = null;
   if (parsedAiResponse) {
@@ -50,7 +50,7 @@ async function requestSuggestion({ parsedAiResponse, env = {}, lines = BIEREMA_L
   try {
     const request = new Request("https://example.test/suggest-heading", {
       method: "POST",
-      body: JSON.stringify({ password: "test", lines, images }),
+      body: JSON.stringify({ password: "test", lines, images, sourceAuthorHint, sourceTitleHint }),
     });
     const response = await handleSuggestHeading(request, env, helpers);
     return { ...(await response.json()), geminiRequestBody };
@@ -335,7 +335,7 @@ test("non-Latin comma author is kept as one author without added and", async () 
   assert.equal(result.source, "ai");
   assert.equal(
     result.heading,
-    "이, 수인. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]."
+    "이수인. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]."
   );
   assert.doesNotMatch(result.heading, /,\s+and\s+수인|꾸밈/);
 });
@@ -356,6 +356,39 @@ test("Korean publication labels are accepted while production credits are ignore
   assert.equal(result.source, "heuristic");
   assert.match(result.heading, /서울시: 도서출판 꿈미, 2023\./);
   assert.doesNotMatch(result.heading, /꾸밈/);
+});
+
+test("Lee media literacy AI output is corrected from filename and imprint evidence", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ pageNumber: 332, mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    sourceAuthorHint: "Lee Su-in",
+    sourceTitleHint: "Media Literacy Class: For Christians in the Infodemic Era",
+    parsedAiResponse: {
+      contributor: "이수민",
+      title: "인포데믹 시대의 그리스도인을 위한 미디어 리터러시 수업",
+      edition: "초판 2쇄",
+      city: "서울시",
+      publisher: "꾸밈, 발행처 도서출판 꾸밈",
+      year: "2023",
+      visibleEvidence: {
+        contributor: "이수인",
+        title: "인포데믹 시대의 그리스도인을 위한 미디어 리터러시 수업",
+        edition: "초판 2쇄 발행일 2023년 7월 18일",
+        city: "주소 서울시 강동구 양재대로81길 39, 202호",
+        publisher: "발행처 도서출판 꿈미",
+        year: "초판 2쇄 발행일 2023년 7월 18일",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "이수인 [Lee Su-in]. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]. 서울시: 도서출판 꿈미, 2023."
+  );
+  assert.doesNotMatch(result.heading, /이수민|초판 2쇄|꾸밈|발행처/);
 });
 
 test("Worker forwards rendered front and imprint images to Gemini", async () => {
