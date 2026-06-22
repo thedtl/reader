@@ -211,6 +211,28 @@ test("AI heading-only citation repairs malformed inverted initial author", async
   assert.doesNotMatch(result.heading, /Robinson,\s+and\s+Haddon/);
 });
 
+test("non-Latin contributors and titles keep visible order with bracketed English equivalents", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "해돈 W. 로빈슨 [Haddon W. Robinson]",
+      title: "성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages]",
+      visibleEvidence: {
+        contributor: "해돈 W. 로빈슨 Haddon W. Robinson",
+        title: "성경 강해설교 강해설교 전개와 전달 Biblical Preaching The Development and Delivery of Expository Messages",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages]."
+  );
+});
+
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
   const images = Array.from({ length: 12 }, (_, index) => ({
     pageNumber: index + 1,

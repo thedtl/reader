@@ -113,6 +113,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "Use this final style when the facts are visible: Last Name, First Name. Title: Subtitle. Responsibility statement. Series Title, volume/number. City: Publisher, Year.",
     "For a personal author shown as First Name Last Name, invert the author in the final bibliography heading as Last Name, First Name.",
     "Use the author name exactly as it appears on the title page. Do not expand, correct, or formalize it from copyright text; for example, if the title page says Tim Arnold and the copyright page says Timothy Arnold, use Tim Arnold.",
+    "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
     "For French title-page statements such as 'TEXTE LATIN / INTRODUCTION, BIBLIOGRAPHIE / TRADUCTION ET NOTES / par / René Roques', include: Texte latin, introduction, bibliographie, traduction et notes par René Roques.",
@@ -508,6 +509,7 @@ function looksLikePersonalName(name) {
 function invertPersonalName(name) {
   const cleaned = trimAuthorName(name);
   if (!cleaned || cleaned.includes(",")) return cleaned;
+  if (containsNonLatinScript(cleaned)) return cleaned;
 
   const parts = cleaned.split(/\s+/);
   if (parts.length < 2) return cleaned;
@@ -521,6 +523,12 @@ function invertPersonalName(name) {
   const last = parts.pop();
   const given = parts.join(" ");
   return last + ", " + given + (suffix ? ", " + suffix : "");
+}
+
+function containsNonLatinScript(text) {
+  const cleaned = cleanFrontMatterLine(text);
+  return /[\p{L}]/u.test(cleaned) &&
+    /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(cleaned);
 }
 
 function extractLineCitationFields(lines) {
