@@ -911,11 +911,16 @@ function cleanFrontMatterLine(text) {
 }
 
 function cleanAuthorLine(text) {
-  return cleanFrontMatterLine(text)
+  return repairSplitInitialSurname(cleanFrontMatterLine(text)
     .replace(/^by\s+/i, "")
     .replace(/^author\s*:\s*/i, "")
-    .replace(/\s+(?:지음|저|著)\s*$/u, "")
+    .replace(/\s+(?:지음|저|著)\s*$/u, ""))
     .trim();
+}
+
+function repairSplitInitialSurname(text) {
+  return cleanFrontMatterLine(text)
+    .replace(/\b([A-Z]\.?)\s+(?:and|&)\s+(\p{Lu}[\p{L}'’-]+)(?=\s*(?:$|[,.;:)]))/gu, "$1 $2");
 }
 
 function cleanCitationText(text) {
