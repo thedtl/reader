@@ -257,6 +257,29 @@ test("split bracket repair applies to non-Latin scripts beyond Korean", async ()
   assert.doesNotMatch(result.heading, /\[Main Title\]:/);
 });
 
+test("non-Latin title uses translated title in brackets instead of romanization", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Howard Rice",
+      title: "영성 목회와 영적 지도 [Yeongseong Mokhoe wa Yeongjeok Jido]: The Pastor as Spiritual Guide",
+      visibleEvidence: {
+        contributor: "Howard Rice",
+        title: "영성 목회와 영적 지도 Yeongseong Mokhoe wa Yeongjeok Jido The Pastor as Spiritual Guide",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Rice, Howard. 영성 목회와 영적 지도 [The Pastor as Spiritual Guide]."
+  );
+  assert.doesNotMatch(result.heading, /Yeongseong|Mokhoe|Yeongjeok|Jido/);
+});
+
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
   const images = Array.from({ length: 12 }, (_, index) => ({
     pageNumber: index + 1,

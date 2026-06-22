@@ -114,6 +114,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For a personal author shown as First Name Last Name, invert the author in the final bibliography heading as Last Name, First Name.",
     "Use the author name exactly as it appears on the title page. Do not expand, correct, or formalize it from copyright text; for example, if the title page says Tim Arnold and the copyright page says Timothy Arnold, use Tim Arnold.",
     "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
+    "For titles, never put a romanization or transliteration in the square brackets. Use the translated title in square brackets instead, for example: 영성 목회와 영적 지도 [The Pastor as Spiritual Guide], not 영성 목회와 영적 지도 [Yeongseong Mokhoe wa Yeongjeok Jido]: The Pastor as Spiritual Guide.",
     "For any non-Latin-script title/subtitle pair, do not bracket the main title and subtitle separately. Use one bracketed English equivalent after the full non-Latin title/subtitle, for example: 성경 강해설교: 강해설교 전개와 전달 [Biblical Preaching: The Development and Delivery of Expository Messages].",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
@@ -361,7 +362,9 @@ function punctuateCitationPart(text) {
 }
 
 function formatCitationTitle(title) {
-  const cleaned = mergeSplitNonLatinTitleTranslations(trimTerminalPeriod(title));
+  const cleaned = moveTrailingNonLatinTitleTranslationIntoBrackets(
+    mergeSplitNonLatinTitleTranslations(trimTerminalPeriod(title))
+  );
   return cleanCitationText(cleaned.replace(/\b[\p{Lu}][\p{Lu}'’-]{2,}\b/gu, word => {
     if (/^(II|III|IV|IX|VI|VII|VIII|USA|UK|US|PDF|ISBN)$/u.test(word)) return word;
     return word.charAt(0).toLocaleUpperCase("en") + word.slice(1).toLocaleLowerCase("en");
@@ -384,6 +387,42 @@ function mergeSplitNonLatinTitleTranslations(text) {
   }
 
   return cleanCitationText(`${sourceMain}: ${sourceSubtitle} [${translationMain}: ${translationSubtitle}]`);
+}
+
+function moveTrailingNonLatinTitleTranslationIntoBrackets(text) {
+  const cleaned = cleanCitationText(text);
+  const match = cleaned.match(/^(.+?)\s*\[([^\[\]]+)\]\s*:\s*([^\[\]]+)$/u);
+  if (!match) {
+    return cleaned;
+  }
+
+  const [, sourceTitle, bracketedText, trailingTitle] = match;
+  if (!containsNonLatinScript(sourceTitle)) {
+    return cleaned;
+  }
+  if (containsNonLatinScript(bracketedText) || containsNonLatinScript(trailingTitle)) {
+    return cleaned;
+  }
+  if (!looksLikeRomanizedTitle(bracketedText)) {
+    return cleaned;
+  }
+
+  return cleanCitationText(`${sourceTitle} [${trimTerminalPeriod(trailingTitle)}]`);
+}
+
+function looksLikeRomanizedTitle(text) {
+  const cleaned = cleanCitationText(text);
+  if (!cleaned || containsNonLatinScript(cleaned)) {
+    return false;
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length < 2) {
+    return false;
+  }
+
+  return words.some(word => /^(?:wa|gwa|ui)$/i.test(word)) ||
+    /\b[a-z]*(?:yeo|yeong|eong|eon|eo|eu|ae|oe|ui|jeok|jido|mokhoe|ganghae|seolgyo)[a-z]*\b/i.test(cleaned);
 }
 
 function preferTitlePageContributor(aiContributor, lines) {
