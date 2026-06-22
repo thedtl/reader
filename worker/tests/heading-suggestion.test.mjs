@@ -358,7 +358,8 @@ test("Korean publication labels are accepted while production credits are ignore
   assert.doesNotMatch(result.heading, /꾸밈/);
 });
 
-test("Lee media literacy AI output is corrected from filename and imprint evidence", async () => {
+test("clean AI heading wins over noisy support fields", async () => {
+  const cleanHeading = "이수인 [Lee Su-in]. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]. 서울시: 도서출판 꿈미, 2023.";
   const result = await requestSuggestion({
     env: { GEMINI_API_KEY: "fake" },
     lines: [],
@@ -366,12 +367,13 @@ test("Lee media literacy AI output is corrected from filename and imprint eviden
     sourceAuthorHint: "Lee Su-in",
     sourceTitleHint: "Media Literacy Class: For Christians in the Infodemic Era",
     parsedAiResponse: {
-      contributor: "이수민",
+      contributor: "이수민 지음, 이수민, 지은이 이수민",
       title: "인포데믹 시대의 그리스도인을 위한 미디어 리터러시 수업",
       edition: "초판 2쇄",
       city: "서울시",
       publisher: "꾸밈, 발행처 도서출판 꾸밈",
       year: "2023",
+      heading: cleanHeading,
       visibleEvidence: {
         contributor: "이수인",
         title: "인포데믹 시대의 그리스도인을 위한 미디어 리터러시 수업",
@@ -379,15 +381,13 @@ test("Lee media literacy AI output is corrected from filename and imprint eviden
         city: "주소 서울시 강동구 양재대로81길 39, 202호",
         publisher: "발행처 도서출판 꿈미",
         year: "초판 2쇄 발행일 2023년 7월 18일",
+        heading: "이수인 미디어 리터러시 수업 인포데믹 시대의 그리스도인을 위한 서울시 도서출판 꿈미 2023",
       },
     },
   });
 
   assert.equal(result.source, "ai");
-  assert.equal(
-    result.heading,
-    "이수인 [Lee Su-in]. 미디어 리터러시 수업: 인포데믹 시대의 그리스도인을 위한 [Media Literacy Class: For Christians in the Infodemic Era]. 서울시: 도서출판 꿈미, 2023."
-  );
+  assert.equal(result.heading, cleanHeading);
   assert.doesNotMatch(result.heading, /이수민|초판 2쇄|꾸밈|발행처/);
 });
 

@@ -133,11 +133,13 @@ async function suggestHeadingWithGemini(lines, images, hints, env) {
     "For each non-empty field, put the exact supporting visible words in visibleEvidence using the same field name.",
     "Do not include internal source markers such as page labels, page numbers, '(Page 4)', '[Page 4]', or similar locator notes in any citation field.",
     "If a field is likely but not explicitly visible, leave that field blank. Do not fill gaps from general knowledge, catalogs, memory, or assumptions.",
-    "Extract separate bibliographic fields first, then create one Chicago Manual of Style bibliography-style entry for the whole book or source.",
+    "Extract separate bibliographic fields first, then create one clean Chicago Manual of Style bibliography-style entry for the whole book or source in heading.",
     "If contributor or title cannot be filled from visible evidence, leave heading blank rather than guessing a final citation.",
-    "The heading must match the structured contributor and title fields; do not return a final heading that uses a different title or turns title words into an author.",
+    "The heading is the authoritative final answer. Do not copy repeated contributor snippets, production credits, or role labels such as 지은이, 지음, 저자, or 저 into heading.",
+    "The structured fields should support the final heading, but the heading should be a polished citation rather than a dump of every visible contributor-like phrase.",
     "Use this final style when the facts are visible: Last Name, First Name. Title: Subtitle. Responsibility statement. Series Title, volume/number. City: Publisher, Year.",
     "For a personal author shown as First Name Last Name, invert the author in the final bibliography heading as Last Name, First Name.",
+    "For non-Latin-script personal authors, do not invert the original-script name. Keep the original-script name in visible order and add the English/Latin-script form in square brackets when visible or when a filename/author hint is provided.",
     "Use the author name exactly as it appears on the title page. Do not expand, correct, or formalize it from copyright text; for example, if the title page says Tim Arnold and the copyright page says Timothy Arnold, use Tim Arnold.",
     "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
     "For non-Latin-script contributor names, include the English/Latin-script form in square brackets when a filename/author hint is provided below; do not replace the visible original-script name.",
@@ -215,6 +217,15 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
   const { sourceAuthorHint = "", sourceTitleHint = "" } = hints || {};
   const evidence = normalizeEvidenceMap(parsed.visibleEvidence || parsed.evidence || {});
   const lineFields = extractLineCitationFields(lines);
+  const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
+
+  if (fallbackHeading) {
+    if (hasCoreCitationFields(lineFields) && !headingIncludesExtractedCore(fallbackHeading, lineFields)) {
+      return buildCitationFromExtractedFields(lineFields);
+    }
+    return cleanCitationText(fallbackHeading);
+  }
+
   const aiContributor = normalizeContributorField(
     normalizeContributorFromEvidence(supportedAiField(parsed, evidence, "contributor"), evidence.contributor),
     sourceAuthorHint
@@ -234,14 +245,9 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
     preferFullerOriginalScriptEvidenceValue(supportedAiField(parsed, evidence, "publisher"), evidence.publisher)
   );
   const year = normalizePublicationYear(supportedAiField(parsed, evidence, "year"), evidence.year);
-  const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
 
-  if (shouldPreferExtractedCitationOverAi({ aiContributor, contributor, title, edition, fallbackHeading }, lineFields)) {
+  if (shouldPreferExtractedCitationOverAi({ aiContributor, title, edition }, lineFields)) {
     return buildCitationFromExtractedFields(lineFields);
-  }
-
-  if (!title && fallbackHeading) {
-    return cleanCitationText(fallbackHeading);
   }
 
   const parts = [];
@@ -278,7 +284,7 @@ function shouldPreferExtractedCitationOverAi(fields, lineFields) {
     return false;
   }
 
-  if (!fields.title && !headingIncludesExtractedCore(fields.fallbackHeading, lineFields)) {
+  if (!fields.title) {
     return true;
   }
 
@@ -288,10 +294,6 @@ function shouldPreferExtractedCitationOverAi(fields, lineFields) {
 
   if (fields.aiContributor && titleContainsText(lineFields.title, fields.aiContributor)) {
     return true;
-  }
-
-  if (!fields.aiContributor && !fields.title && fields.fallbackHeading) {
-    return !headingIncludesExtractedCore(fields.fallbackHeading, lineFields);
   }
 
   return false;
@@ -376,26 +378,12 @@ function normalizeContributorField(contributor, sourceAuthorHint = "") {
 }
 
 function normalizeTitleField(title, sourceTitleHint = "") {
-  let cleaned = reorderKoreanLeadingSubtitleTitle(cleanCitationText(title));
+  let cleaned = cleanCitationText(title);
   const hint = normalizeSourceTitleHint(sourceTitleHint);
   if (cleaned && hint && containsNonLatinScript(cleaned) && !/\[[^\[\]]+\]/u.test(cleaned)) {
     cleaned = `${cleaned} [${hint}]`;
   }
   return cleaned;
-}
-
-function reorderKoreanLeadingSubtitleTitle(title) {
-  const cleaned = cleanCitationText(title);
-  if (!containsNonLatinScript(cleaned) || /[:：]/u.test(cleaned)) {
-    return cleaned;
-  }
-
-  const match = cleaned.match(/^(.{4,45}?을\s+위한)\s+(.{3,45})$/u);
-  if (!match) {
-    return cleaned;
-  }
-
-  return cleanCitationText(`${match[2]}: ${match[1]}`);
 }
 
 function normalizeEditionStatement(edition) {
@@ -1176,7 +1164,6 @@ function normalizePublisherName(text) {
 
   cleaned = cleaned
     .replace(/^(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?\s*/u, "")
-    .replace(/도서출판\s*꾸밈/gu, "도서출판 꿈미")
     .replace(/\s+site internet\b.*$/i, "")
     .replace(/\s+www\..*$/i, "")
     .replace(/\s+all rights reserved.*$/i, "")
