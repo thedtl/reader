@@ -116,16 +116,18 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "For non-Latin-script contributor names or titles, keep the visible non-Latin text first. If a visible English or Latin-script equivalent is also present, add it immediately after in square brackets, for example: 해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages].",
     "For titles, never put a romanization or transliteration in the square brackets. Use the translated title in square brackets instead, for example: 영성 목회와 영적 지도 [The Pastor as Spiritual Guide], not 영성 목회와 영적 지도 [Yeongseong Mokhoe wa Yeongjeok Jido]: The Pastor as Spiritual Guide.",
     "For any non-Latin-script title/subtitle pair, do not bracket the main title and subtitle separately. Use one bracketed English equivalent after the full non-Latin title/subtitle, for example: 성경 강해설교: 강해설교 전개와 전달 [Biblical Preaching: The Development and Delivery of Expository Messages].",
+    "Do not translate, romanize, or bracket equivalents for series titles, place names, publisher names, or responsibility names. Keep those fields in the visible original form unless the source only shows a Latin-script form.",
     "For multiple authors, include them in Chicago bibliography order. For editors with no author, use ed. or eds. in the contributor field.",
     "Never omit named title-page contributors. If the title page says a person supplied introduction, bibliography, translation, notes, commentary, edition, Latin text, or similar work, capture that as responsibilityStatement and include it after the title.",
+    "For translator or responsibility statements, use Chicago-style natural order after the role, such as Translated by 최대형. Prefer the visible original-script name when present; do not invert it as Choi, Dae-Hyung and do not add a bracketed romanization.",
     "For French title-page statements such as 'TEXTE LATIN / INTRODUCTION, BIBLIOGRAPHIE / TRADUCTION ET NOTES / par / René Roques', include: Texte latin, introduction, bibliographie, traduction et notes par René Roques.",
     "Normalize OCR all-caps surnames in responsibility names, such as Laure SOLIGNAC, to normal name capitalization. Omit trailing credential initials and religious/order credentials such as Ph.D., S.J., O.P., and OFM Cap. from all contributor names unless the credential is part of a title.",
     "Do not put title, subtitle, series, or edition text in contributor. For example, if a title page says 'ADULT LEARNING / Linking Theory and Practice / Second Edition / Laura L. Bierema, Monica Fedeli, Sharan B. Merriam', contributor is the three named people, title is Adult Learning: Linking Theory and Practice, and edition is Second Edition.",
     "An edition statement such as Second Edition is never the title by itself; put it in edition and keep looking for the actual title.",
     "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
     "Look for publication facts on copyright/title-page verso pages: publisher name, publication place, and publication year.",
-    "CMOS 18 no longer requires publication place, but this tool should include a visible place when it is clearly identified in the front matter.",
-    "When city, publisher, and year are clearly visible, the entry may end with City: Publisher, Year; otherwise use Publisher, Year.",
+    "CMOS 18 no longer requires publication place. Omit place from the final entry even when visible, unless there is no publisher and the place is the only publication fact.",
+    "When publisher and year are clearly visible, the entry should end with Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
     "Include volume, translator, edition, revision/reprint, or editor details only when they are clearly visible and bibliographically important.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
@@ -179,12 +181,16 @@ function buildAiCitation(parsed, lines = []) {
   const aiContributor = supportedAiField(parsed, evidence, "contributor");
   let contributor = preferTitlePageContributor(aiContributor, lines);
   let title = supportedAiField(parsed, evidence, "title");
-  const responsibilityStatement = normalizeResponsibilityStatement(supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]));
-  const series = supportedAiField(parsed, evidence, "series");
+  const responsibilityEvidence = evidence.responsibilityStatement || evidence.responsibility || "";
+  const responsibilityStatement = normalizeResponsibilityStatement(
+    supportedAiField(parsed, evidence, "responsibilityStatement", ["responsibility"]),
+    responsibilityEvidence
+  );
+  const series = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "series"));
   const seriesNumber = supportedAiField(parsed, evidence, "seriesNumber");
   let edition = supportedAiField(parsed, evidence, "edition");
   const city = supportedAiField(parsed, evidence, "city");
-  const publisher = supportedAiField(parsed, evidence, "publisher");
+  const publisher = stripNonTitleLatinBracketedEquivalents(supportedAiField(parsed, evidence, "publisher"));
   const year = supportedAiField(parsed, evidence, "year");
   const fallbackHeading = normalizeAiCitationText(supportedAiField(parsed, evidence, "heading"));
 
@@ -327,12 +333,6 @@ function normalizeEvidenceMap(rawEvidence) {
 }
 
 function buildPublicationBlock(city, publisher, year) {
-  if (city && publisher && year) {
-    return `${city}: ${publisher}, ${year}`;
-  }
-  if (city && publisher) {
-    return `${city}: ${publisher}`;
-  }
   if (publisher && year) {
     return `${publisher}, ${year}`;
   }
@@ -1138,8 +1138,8 @@ function looksLikeResponsibilityRoleLine(text) {
   return /\b(translated|translation|edited|editor|introduction|introduced|bibliography|bibliographie|notes?|commentary|latin text|texte latin|traduction|traduit|preface|préface|foreword|annotated|annotations?)\b/i.test(cleaned);
 }
 
-function normalizeResponsibilityStatement(text) {
-  const cleaned = cleanCitationText(text);
+function normalizeResponsibilityStatement(text, evidenceText = "") {
+  const cleaned = stripNonTitleLatinBracketedEquivalents(cleanCitationText(text));
   if (!cleaned) {
     return "";
   }
@@ -1151,7 +1151,7 @@ function normalizeResponsibilityStatement(text) {
 
   const role = sentenceCaseText(match[1]);
   const connector = /^par$/i.test(match[2]) ? "par" : "by";
-  const name = normalizeContributorName(match[3]);
+  const name = normalizeContributorName(preferOriginalScriptResponsibilityName(match[3], evidenceText));
   return cleanCitationText(`${role} ${connector} ${name}`);
 }
 
@@ -1162,6 +1162,45 @@ function normalizeAiCitationText(text) {
   });
 
   return normalizeLeadingInvertedInitialAuthorHeading(cleaned);
+}
+
+function stripNonTitleLatinBracketedEquivalents(text) {
+  const cleaned = cleanCitationText(text);
+  if (!containsNonLatinScript(cleaned)) {
+    return cleaned;
+  }
+
+  return cleanCitationText(cleaned.replace(/\s*\[([^\[\]]+)\]/gu, (match, bracketed) => {
+    return containsNonLatinScript(bracketed) ? match : "";
+  }));
+}
+
+function preferOriginalScriptResponsibilityName(name, evidenceText) {
+  const cleanedName = cleanCitationText(name);
+  if (!cleanedName || containsNonLatinScript(cleanedName)) {
+    return cleanedName;
+  }
+
+  const evidenceName = extractOriginalScriptResponsibilityName(evidenceText);
+  return evidenceName || cleanedName;
+}
+
+function extractOriginalScriptResponsibilityName(text) {
+  const cleaned = cleanCitationText(text);
+  if (!containsNonLatinScript(cleaned)) {
+    return "";
+  }
+
+  const koreanTranslator = cleaned.match(/([가-힣]{2,}(?:\s+[가-힣]{2,}){0,2})\s*(?:옮김|번역|역자|역)\b/u);
+  if (koreanTranslator) {
+    return cleanCitationText(koreanTranslator[1]);
+  }
+
+  const nonLatinRuns = [...cleaned.matchAll(/(?:[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}][\p{Script=Common}\p{Script=Inherited}]*){2,}/gu)]
+    .map(match => cleanCitationText(match[0]).replace(/\s*(?:옮김|번역|역자|역|지음|저)\s*$/u, "").trim())
+    .filter(candidate => candidate && containsNonLatinScript(candidate) && candidate.length <= 40);
+
+  return nonLatinRuns[0] || "";
 }
 
 function formatResponsibilityRoles(lines) {
