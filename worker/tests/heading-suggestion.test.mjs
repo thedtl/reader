@@ -422,6 +422,64 @@ test("AI heading publication tail is reconciled with visible publisher evidence"
   assert.doesNotMatch(result.heading, /서울시: 꾸밈/);
 });
 
+test("AI editor role labels are normalized in final headings", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ pageNumber: 1, mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Barry J. Beitzel, General Editor",
+      title: "Volume 2: 1 Samuel-Esther",
+      series: "Lexham Geographic Commentary on the Historical Books",
+      city: "Bellingham",
+      publisher: "Lexham Press",
+      year: "2016",
+      heading: "Beitzel, Barry J., General Editor. Volume 2: 1 Samuel-Esther. Lexham Geographic Commentary on the Historical Books, 2. Bellingham: Lexham Press, 2016.",
+      visibleEvidence: {
+        contributor: "Barry J. Beitzel, General Editor",
+        title: "Volume 2: 1 Samuel-Esther",
+        series: "Lexham Geographic Commentary on the Historical Books",
+        city: "Bellingham",
+        publisher: "Lexham Press",
+        year: "2016",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.match(result.heading, /^Beitzel, Barry J\., ed\./);
+  assert.doesNotMatch(result.heading, /General Editor|and ed\./);
+});
+
+test("structured editor contributors keep ed. with the author name", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ pageNumber: 1, mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Barry J. Beitzel, General Editor",
+      title: "Lexham Geographic Commentary on the Historical Books: Volume 2, 1 Samuel-Esther",
+      city: "Bellingham",
+      publisher: "Lexham Press",
+      year: "2016",
+      visibleEvidence: {
+        contributor: "Barry J. Beitzel, General Editor",
+        title: "Lexham Geographic Commentary on the Historical Books Volume 2: 1 Samuel-Esther",
+        city: "Bellingham",
+        publisher: "Lexham Press",
+        year: "2016",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Beitzel, Barry J., ed. Lexham Geographic Commentary on the Historical Books: Volume 2, 1 Samuel-Esther. Bellingham: Lexham Press, 2016."
+  );
+  assert.doesNotMatch(result.heading, /Barry J\. Beitzel, ed\.|and ed\.|General Editor/);
+});
+
 test("Worker forwards rendered front and imprint images to Gemini", async () => {
   const images = Array.from({ length: 20 }, (_, index) => ({
     pageNumber: index < 12 ? index + 1 : 320 + index,
@@ -443,6 +501,8 @@ test("Worker forwards rendered front and imprint images to Gemini", async () => 
   const prompt = parts[0].text;
   assert.equal(parts.filter(part => part.inlineData).length, 18);
   assert(parts.some(part => part.text === "Rendered PDF page 332"));
+  assert.match(prompt, /Do not split a single stacked title block into title plus series/);
+  assert.match(prompt, /For editor labels such as General Editor, cite the role as ed\. or eds\./);
   assert.match(prompt, /박성덕 \[Park Sung-deok\]/);
   assert.match(prompt, /Do not use a translated title, filename, URL slug, MMS ID, or other source identifier as the bracketed contributor form/);
 });
