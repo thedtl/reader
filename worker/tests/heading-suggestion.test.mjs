@@ -211,17 +211,17 @@ test("AI heading-only citation repairs malformed inverted initial author", async
   assert.doesNotMatch(result.heading, /Robinson,\s+and\s+Haddon/);
 });
 
-test("non-Latin contributors and titles keep visible order with bracketed English equivalents", async () => {
+test("non-Latin title and subtitle use one combined bracketed English equivalent", async () => {
   const result = await requestSuggestion({
     env: { GEMINI_API_KEY: "fake" },
     lines: [],
     images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
     parsedAiResponse: {
       contributor: "해돈 W. 로빈슨 [Haddon W. Robinson]",
-      title: "성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages]",
+      title: "성경 강해설교 [Biblical Preaching]: 강해설교 전개와 전달 [The Development and Delivery of Expository Messages]",
       visibleEvidence: {
         contributor: "해돈 W. 로빈슨 Haddon W. Robinson",
-        title: "성경 강해설교 강해설교 전개와 전달 Biblical Preaching The Development and Delivery of Expository Messages",
+        title: "성경 강해설교 Biblical Preaching 강해설교 전개와 전달 The Development and Delivery of Expository Messages",
       },
     },
   });
@@ -229,8 +229,32 @@ test("non-Latin contributors and titles keep visible order with bracketed Englis
   assert.equal(result.source, "ai");
   assert.equal(
     result.heading,
-    "해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교 강해설교 전개와 전달 [Biblical Preaching The Development and Delivery of Expository Messages]."
+    "해돈 W. 로빈슨 [Haddon W. Robinson]. 성경 강해설교: 강해설교 전개와 전달 [Biblical Preaching: The Development and Delivery of Expository Messages]."
   );
+  assert.doesNotMatch(result.heading, /\[Biblical Preaching\]:/);
+});
+
+test("split bracket repair applies to non-Latin scripts beyond Korean", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [],
+    images: [{ mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Example Author",
+      title: "عنوان رئيسي [Main Title]: عنوان فرعي [Subtitle]",
+      visibleEvidence: {
+        contributor: "Example Author",
+        title: "عنوان رئيسي Main Title عنوان فرعي Subtitle",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Author, Example. عنوان رئيسي: عنوان فرعي [Main Title: Subtitle]."
+  );
+  assert.doesNotMatch(result.heading, /\[Main Title\]:/);
 });
 
 test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
