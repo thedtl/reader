@@ -347,20 +347,20 @@ test("Korean publication labels are accepted while production credits are ignore
       { text: "미디어 리터러시 수업", pageNumber: 1, fontSize: 28, index: 2 },
       { text: "인포데믹 시대의 그리스도인을 위한", pageNumber: 1, fontSize: 18, index: 3 },
       { text: "꾸밈: 홍길동", pageNumber: 4, fontSize: 10, index: 4 },
-      { text: "출판사 좋은씨앗", pageNumber: 4, fontSize: 10, index: 5 },
-      { text: "서울", pageNumber: 4, fontSize: 10, index: 6 },
-      { text: "2024년 3월 1일 발행", pageNumber: 4, fontSize: 10, index: 7 },
+      { text: "발행처 도서출판 꿈미", pageNumber: 332, fontSize: 10, index: 5 },
+      { text: "주소 서울시 강동구 양재대로81길 39, 202호", pageNumber: 332, fontSize: 10, index: 6 },
+      { text: "초판 2쇄 발행일 2023년 7월 18일", pageNumber: 332, fontSize: 10, index: 7 },
     ],
   });
 
   assert.equal(result.source, "heuristic");
-  assert.match(result.heading, /서울: 좋은씨앗, 2024\./);
+  assert.match(result.heading, /서울시: 도서출판 꿈미, 2023\./);
   assert.doesNotMatch(result.heading, /꾸밈/);
 });
 
-test("Worker forwards twelve rendered front-matter images to Gemini", async () => {
-  const images = Array.from({ length: 12 }, (_, index) => ({
-    pageNumber: index + 1,
+test("Worker forwards rendered front and imprint images to Gemini", async () => {
+  const images = Array.from({ length: 20 }, (_, index) => ({
+    pageNumber: index < 12 ? index + 1 : 320 + index,
     mimeType: "image/jpeg",
     data: "ZmFrZQ==",
   }));
@@ -376,5 +376,6 @@ test("Worker forwards twelve rendered front-matter images to Gemini", async () =
   });
 
   const parts = result.geminiRequestBody.contents[0].parts;
-  assert.equal(parts.filter(part => part.inlineData).length, 12);
+  assert.equal(parts.filter(part => part.inlineData).length, 18);
+  assert(parts.some(part => part.text === "Rendered PDF page 332"));
 });

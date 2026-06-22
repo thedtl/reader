@@ -78,7 +78,7 @@ function normalizeHeadingImages(rawImages) {
   }
 
   return rawImages
-    .slice(0, 12)
+    .slice(0, 18)
     .map(image => {
       if (!image || typeof image !== "object") {
         return null;
@@ -89,7 +89,7 @@ function normalizeHeadingImages(rawImages) {
       if (!/^image\/(jpeg|png|webp)$/.test(mimeType) || !/^[A-Za-z0-9+/=]+$/.test(data)) {
         return null;
       }
-      return { mimeType, data };
+      return { pageNumber: Number(image.pageNumber || 0), mimeType, data };
     })
     .filter(Boolean);
 }
@@ -103,7 +103,7 @@ async function suggestHeadingWithGemini(lines, images, env) {
 
   const prompt = [
     "You are helping library staff create a full bibliographic heading for chapter links.",
-    "Use only the provided front-matter text and page images. Do not invent facts.",
+    "Use only the provided front matter, final imprint/copyright text, and page images. Do not invent facts.",
     "Hallucination guardrail: every non-empty field must be supported by exact visible words in the text or images.",
     "For each non-empty field, put the exact supporting visible words in visibleEvidence using the same field name.",
     "Do not include internal source markers such as page labels, page numbers, '(Page 4)', '[Page 4]', or similar locator notes in any citation field.",
@@ -126,12 +126,13 @@ async function suggestHeadingWithGemini(lines, images, env) {
     "Do not put title, subtitle, series, or edition text in contributor. For example, if a title page says 'ADULT LEARNING / Linking Theory and Practice / Second Edition / Laura L. Bierema, Monica Fedeli, Sharan B. Merriam', contributor is the three named people, title is Adult Learning: Linking Theory and Practice, and edition is Second Edition.",
     "An edition statement such as Second Edition is never the title by itself; put it in edition and keep looking for the actual title.",
     "Extract series title and series volume/number when they are clearly visible, especially for commentary series or multi-volume sets.",
-    "Look for publication facts on copyright/title-page verso pages: publisher name, publication place, and publication year.",
+    "Look for publication facts on copyright/title-page verso pages and final imprint/copyright pages: publisher name, publication place, and publication year.",
     "If a page lists both an original or first-publication date and a later printing or edition date, use the later visible printing/edition date for this scanned copy.",
     "Include a visible publication place when clearly identified in the front matter.",
     "When city, publisher, and year are clearly visible, the entry should end with City: Publisher, Year.",
     "Do not treat the series title as a substitute for publisher information; include both when both are visible.",
     "Include volume, translator, edition, revision/reprint, or editor details only when they are clearly visible and bibliographically important.",
+    "For Korean books, publication facts may appear on a final imprint page with labels such as 발행처, 주소, and 초판/2쇄 발행일; use those visible facts when present.",
     "If place, publisher, or year are not visible, omit only the missing pieces instead of inventing them.",
     "Ignore ISBN, copyright boilerplate, library-cataloging blocks, table-of-contents lines, and chapter-title lines.",
     "Return JSON only, with this shape: {\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\",\"visibleEvidence\":{\"contributor\":\"...\",\"title\":\"...\",\"responsibilityStatement\":\"...\",\"series\":\"...\",\"seriesNumber\":\"...\",\"edition\":\"...\",\"city\":\"...\",\"publisher\":\"...\",\"year\":\"...\",\"heading\":\"...\"},\"warnings\":[\"...\"]}.",
@@ -141,6 +142,9 @@ async function suggestHeadingWithGemini(lines, images, env) {
 
   const parts = [{ text: prompt }];
   for (const image of images) {
+    if (image.pageNumber) {
+      parts.push({ text: `Rendered PDF page ${image.pageNumber}` });
+    }
     parts.push({
       inlineData: {
         mimeType: image.mimeType,
@@ -356,7 +360,7 @@ function normalizePublicationYear(year, evidenceText = "") {
     return cleanedYear;
   }
 
-  const KoreanIssueDatePattern = /(?:\d+\s*쇄|\d+\s*판|개정판|증보판|재판)\s*발행\s*(\d{4})/gu;
+  const KoreanIssueDatePattern = /(?:\d+\s*쇄|\d+\s*판|개정판|증보판|재판)\s*발행(?:일)?\s*(\d{4})/gu;
   const issueYears = [...evidence.matchAll(KoreanIssueDatePattern)]
     .map(match => match[1])
     .filter(Boolean);
