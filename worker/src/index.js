@@ -8,6 +8,7 @@ const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 const TOC_BACKEND_URL = "https://toc-service-4s2ll3m6pa-uc.a.run.app";
 const READER_SESSION_TTL_SECONDS = 10 * 60;
 const TOC_SOURCE_TOKEN_TTL_SECONDS = 3 * 60 * 60;
+const CHAPTER_PDF_MAX_SOURCE_BYTES = 90 * 1024 * 1024;
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -111,6 +112,14 @@ export default {
 
       return json({ error: "Method not allowed" }, request, env, 405);
     } catch (error) {
+      console.error("Worker request failed", {
+        method: request.method,
+        path: url.pathname,
+        status: error.status || 500,
+        name: error.name || "Error",
+        message: error.message || "Unexpected worker error",
+        stack: String(error.stack || "").slice(0, 1200),
+      });
       return json(
         { error: error.message || "Unexpected worker error" },
         request,
@@ -388,10 +397,12 @@ async function handleReaderSession(request, env) {
     return json({ error: "Token expired" }, request, env, 401);
   }
 
+  const delivery = await detectChapterDelivery(request, env, payload);
   const session = await signReaderSession(token, request, env);
   return json({
     session,
     expiresIn: READER_SESSION_TTL_SECONDS,
+    delivery,
   }, request, env);
 }
 
@@ -468,7 +479,27 @@ async function proxyChapterPdf(request, env, payload) {
     return dropboxErrorResponse(dropboxResponse, request, env);
   }
 
-  const sourceBytes = await dropboxResponse.arrayBuffer();
+  const sourceLength = Number(dropboxResponse.headers.get("content-length") || 0);
+  if (sourceLength > CHAPTER_PDF_MAX_SOURCE_BYTES) {
+    console.warn("Chapter PDF source too large for Worker extraction; failing closed", {
+      sourceBytes: sourceLength,
+      maxSourceBytes: CHAPTER_PDF_MAX_SOURCE_BYTES,
+    });
+    throw new HttpError(413, "This PDF is too large for chapter-only extraction in the Worker.");
+  }
+
+  let sourceBytes;
+  try {
+    sourceBytes = await dropboxResponse.arrayBuffer();
+  } catch (error) {
+    if (isMemoryLimitError(error)) {
+      console.warn("Chapter PDF extraction hit Worker memory limit; failing closed", {
+        message: error.message || "Memory limit exceeded",
+      });
+      throw new HttpError(413, "This PDF is too large for chapter-only extraction in the Worker.");
+    }
+    throw error;
+  }
   const sourcePdf = await PDFDocument.load(sourceBytes, {
     ignoreEncryption: true,
   });
@@ -503,6 +534,59 @@ async function proxyChapterPdf(request, env, payload) {
     status: 200,
     headers,
   });
+}
+
+async function detectChapterDelivery(request, env, payload) {
+  const delivery = {
+    mode: "chapter-only-pdf",
+    start: 1,
+    end: payload.e,
+    sourceStart: payload.ss,
+    sourceEnd: payload.se,
+  };
+
+  try {
+    const sourceBytes = await probeDropboxSourceBytes(request, env, payload.dbx);
+    if (sourceBytes > CHAPTER_PDF_MAX_SOURCE_BYTES) {
+      return {
+        ...delivery,
+        reason: "source_too_large",
+        sourceBytes,
+      };
+    }
+    return { ...delivery, sourceBytes };
+  } catch (error) {
+    console.warn("Chapter delivery probe failed; defaulting to chapter-only PDF", {
+      message: error.message || "Unknown delivery probe error",
+    });
+    return delivery;
+  }
+}
+
+async function probeDropboxSourceBytes(request, env, dropboxRef) {
+  const accessToken = await getDropboxAccessToken(env);
+  const downloadRef = await resolveDropboxRefForDownload(accessToken, dropboxRef);
+  const headers = new Headers();
+  headers.set("range", "bytes=0-0");
+  const probeRequest = new Request(request.url, {
+    method: "GET",
+    headers,
+  });
+  const response = await fetchDropboxPdf(probeRequest, accessToken, downloadRef);
+  if (!response.ok && response.status !== 206 && response.status !== 416) {
+    return 0;
+  }
+  return totalBytesFromContentRange(response.headers.get("content-range"))
+    || Number(response.headers.get("content-length") || 0);
+}
+
+function totalBytesFromContentRange(value) {
+  const match = String(value || "").match(/\/(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function isMemoryLimitError(error) {
+  return String(error?.message || "").toLowerCase().includes("memory limit");
 }
 
 async function buildTocSourceUrl(request, env, dropboxRef) {
@@ -1088,7 +1172,7 @@ function corsHeaders(request, env) {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,HEAD,POST,OPTIONS",
     "access-control-allow-headers": "content-type,range",
-    "access-control-expose-headers": "accept-ranges,content-length,content-range,content-type,etag,last-modified,x-dtl-restriction-mode",
+    "access-control-expose-headers": "accept-ranges,content-length,content-range,content-type,etag,last-modified,x-dtl-chapter-pages,x-dtl-fallback-reason,x-dtl-reader-session,x-dtl-restriction-mode",
     vary: "Origin",
   });
 }
