@@ -267,7 +267,8 @@ function buildAiCitation(parsed, lines = [], hints = {}) {
     if (
       hasCoreCitationFields(lineFields) &&
       !headingIncludesExtractedCore(fallbackHeading, lineFields) &&
-      !shouldTrustEditedBookAiHeading(fallbackHeading, evidence)
+      !shouldTrustEditedBookAiHeading(fallbackHeading, evidence) &&
+      !shouldTrustSupportedAiHeading(fallbackHeading, parsed, evidence)
     ) {
       return buildCitationFromExtractedFields(lineFields);
     }
@@ -439,6 +440,19 @@ function shouldTrustEditedBookAiHeading(heading, evidence) {
 
   return /\b(?:edited by|edited and introduced by|general editor|series editor)\b/i.test(contributorEvidence) ||
     /\b(?:ouvrage\s+[ée]dit[ée]\s+par|texte\s+[ée]tabli\s+par)\b/iu.test(contributorEvidence);
+}
+
+function shouldTrustSupportedAiHeading(heading, parsed, evidence) {
+  const aiContributor = cleanCitationText(parsed.contributor || "");
+  const aiTitle = cleanCitationText(parsed.title || "");
+  if (!aiContributor || !aiTitle || !evidence.contributor || !evidence.title) {
+    return false;
+  }
+  if (!headingIncludesContributor(heading, aiContributor) || !headingIncludesTitle(heading, aiTitle)) {
+    return false;
+  }
+
+  return Boolean(evidence.publisher || evidence.year || evidence.city || evidence.edition || evidence.heading);
 }
 
 function extractSupportedPublicationFields(parsed, evidence) {

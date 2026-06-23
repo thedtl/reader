@@ -521,6 +521,46 @@ test("prompt tells AI to omit collaborator and ToC article names for whole edite
   assert.match(prompt, /chapter authors, article authors, or table-of-contents entries/);
 });
 
+test("supported AI heading wins over noisy OCR title extraction", async () => {
+  const result = await requestSuggestion({
+    env: { GEMINI_API_KEY: "fake" },
+    lines: [
+      { text: "Fam Ily TH Erapies", pageNumber: 1, fontSize: 30 },
+      { text: "A Comprehensive Christian Appraisal", pageNumber: 1, fontSize: 18 },
+      { text: "Second edition", pageNumber: 1, fontSize: 12 },
+      { text: "Yarhouse, Mark A.", pageNumber: 1, fontSize: 14 },
+      { text: "ABPR professor ofpsychology, George Fox Universiry", pageNumber: 1, fontSize: 10 },
+      { text: "an integrative model of family therapy. This is a significant book that", pageNumber: 2, fontSize: 10 },
+      { text: "2008", pageNumber: 2, fontSize: 10 },
+    ],
+    images: [{ pageNumber: 1, mimeType: "image/jpeg", data: "ZmFrZQ==" }],
+    parsedAiResponse: {
+      contributor: "Yarhouse, Mark A., and James N. Sells",
+      title: "Family Therapies: A Comprehensive Christian Appraisal",
+      edition: "Second Edition",
+      city: "Downers Grove",
+      publisher: "InterVarsity Press",
+      year: "2017",
+      heading: "Yarhouse, Mark A., and James N. Sells. Family Therapies: A Comprehensive Christian Appraisal. Second Edition. Downers Grove: InterVarsity Press, 2017.",
+      visibleEvidence: {
+        contributor: "Mark A. Yarhouse and James N. Sells",
+        title: "FAMILY THERAPIES A Comprehensive Christian Appraisal",
+        edition: "SECOND EDITION",
+        city: "Downers Grove, Illinois",
+        publisher: "IVP Academic An imprint of InterVarsity Press",
+        year: "©2017",
+      },
+    },
+  });
+
+  assert.equal(result.source, "ai");
+  assert.equal(
+    result.heading,
+    "Yarhouse, Mark A., and James N. Sells. Family Therapies: A Comprehensive Christian Appraisal. Second Edition. Downers Grove: InterVarsity Press, 2017."
+  );
+  assert.doesNotMatch(result.heading, /Fam Ily|TH Erapies|ABPR|ofpsychology|Universiry|2008/);
+});
+
 test("Worker forwards rendered front and imprint images to Gemini", async () => {
   const images = Array.from({ length: 20 }, (_, index) => ({
     pageNumber: index < 12 ? index + 1 : 320 + index,
