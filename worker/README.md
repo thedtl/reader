@@ -14,6 +14,9 @@ Set these as Worker secrets, not as committed files:
 - `DROPBOX_APP_SECRET`: Dropbox app secret.
 - `TOKEN_SECRET`: long random string used to sign patron links.
 - `STAFF_PASSWORD`: staff-only password for link generation routes.
+- `DTL_STAFF_PASSWORD`: optional separate backend staff password for ToC
+  Creator routes. When omitted, the staff-entered password is forwarded to the
+  ToC backend.
 
 For a quick short-lived smoke test only, `DROPBOX_ACCESS_TOKEN` can be used
 instead of the three Dropbox refresh-token secrets. The refresh-token setup is
@@ -31,6 +34,16 @@ preferred because Dropbox access tokens expire.
 - `GET /sign?password=...&dropbox=...&start=1&end=10&chapter=...`
 - `POST /batch-sign`
 - `GET /analyze?password=...&dropbox=...`
+- `POST /toc/health`
+- `POST /toc/analyze`
+- `POST /toc/metadata`
+- `POST /toc/jobs`
+- `POST /toc/job-status`
+- `POST /toc/run-feedback`
+- `POST /toc/runs/recent`
+- `GET /toc/source?token=...` is an internal short-lived source-PDF URL used by
+  the ToC backend. Staff should keep using the ToC Creator UI rather than
+  opening this route directly.
 - `GET /reader-session?token=...` returns a short-lived reader session for the
   approved PDF.js viewer.
 - `GET /?token=...` returns a temporary PDF containing only the token's page

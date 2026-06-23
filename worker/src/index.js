@@ -5,7 +5,9 @@ const DROPBOX_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 const DROPBOX_SHARED_LINK_FILE_URL = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
 const DROPBOX_SHARED_LINK_METADATA_URL = "https://api.dropboxapi.com/2/sharing/get_shared_link_metadata";
 const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
+const TOC_BACKEND_URL = "https://toc-service-4s2ll3m6pa-uc.a.run.app";
 const READER_SESSION_TTL_SECONDS = 10 * 60;
+const TOC_SOURCE_TOKEN_TTL_SECONDS = 3 * 60 * 60;
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -65,6 +67,38 @@ export default {
           json,
           requireStaffPasswordValue,
         });
+      }
+
+      if (url.pathname === "/toc/health" && request.method === "POST") {
+        return await handleTocHealth(request, env);
+      }
+
+      if (url.pathname === "/toc/analyze" && request.method === "POST") {
+        return await handleTocAnalyze(request, env);
+      }
+
+      if (url.pathname === "/toc/metadata" && request.method === "POST") {
+        return await handleTocMetadata(request, env);
+      }
+
+      if (url.pathname === "/toc/jobs" && request.method === "POST") {
+        return await handleTocJobStart(request, env);
+      }
+
+      if (url.pathname === "/toc/job-status" && request.method === "POST") {
+        return await handleTocJobStatus(request, env);
+      }
+
+      if (url.pathname === "/toc/run-feedback" && request.method === "POST") {
+        return await handleTocRunFeedback(request, env);
+      }
+
+      if (url.pathname === "/toc/runs/recent" && request.method === "POST") {
+        return await handleTocRecentRuns(request, env);
+      }
+
+      if (url.pathname === "/toc/source" && (request.method === "GET" || request.method === "HEAD")) {
+        return await handleTocSource(request, env);
       }
 
       if (url.pathname === "/reader-session" && request.method === "GET") {
@@ -145,6 +179,195 @@ async function handleAnalyze(request, env) {
   const url = new URL(request.url);
   const dropboxRef = normalizeDropboxRef(url.searchParams.get("dropbox") || url.searchParams.get("path"));
   return proxyDropboxPdf(request, env, dropboxRef);
+}
+
+async function handleTocHealth(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  return json({ ok: true, service: "toc" }, request, env);
+}
+
+async function handleTocAnalyze(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const dropboxRef = normalizeDropboxRef(dropboxRefFromBody(body));
+  const sourceUrl = await buildTocSourceUrl(request, env, dropboxRef);
+  const maxPages = Number.isFinite(Number(body.max_pages)) ? Number(body.max_pages) : 100;
+  const skipBookmarks = body.skip_bookmarks === true || body.skip_bookmarks === "true";
+  const scanFromEnd = body.scan_from_end === true || body.scan_from_end === "true";
+
+  const form = new FormData();
+  form.append("pdf_url", sourceUrl);
+  form.append("max_pages", String(maxPages));
+  form.append("skip_bookmarks", skipBookmarks ? "true" : "false");
+  form.append("scan_from_end", scanFromEnd ? "true" : "false");
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/analyze-pdf-ai`, {
+    method: "POST",
+    headers: {
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+    body: form,
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocMetadata(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const dropboxRef = normalizeDropboxRef(dropboxRefFromBody(body));
+  const sourceUrl = await buildTocSourceUrl(request, env, dropboxRef);
+  const maxPages = Number.isFinite(Number(body.max_pages))
+    ? Math.max(1, Math.min(Number(body.max_pages), 20))
+    : 8;
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-metadata`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+    body: JSON.stringify({
+      pdf_url: sourceUrl,
+      max_pages: maxPages,
+    }),
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocJobStart(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const dropboxRef = normalizeDropboxRef(dropboxRefFromBody(body));
+  const sourceUrl = await buildTocSourceUrl(request, env, dropboxRef);
+  const maxPages = Number.isFinite(Number(body.max_pages)) ? Number(body.max_pages) : 100;
+  const skipBookmarks = body.skip_bookmarks === true || body.skip_bookmarks === "true";
+  const scanFromEnd = body.scan_from_end === true || body.scan_from_end === "true";
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-jobs`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+    body: JSON.stringify({
+      pdf_url: sourceUrl,
+      max_pages: maxPages,
+      skip_bookmarks: skipBookmarks,
+      scan_from_end: scanFromEnd,
+    }),
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocJobStatus(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const jobId = String(body.job_id || body.jobId || "").trim();
+  if (!jobId) {
+    throw new HttpError(400, "Missing required parameter: job_id");
+  }
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+    headers: {
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocRunFeedback(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const runId = String(body.run_id || body.runId || body.job_id || body.jobId || "").trim();
+  if (!runId) {
+    throw new HttpError(400, "Missing required parameter: run_id");
+  }
+
+  const payload = {
+    outcome: String(body.outcome || "").trim(),
+    note: String(body.note || "").trim(),
+    issues: Array.isArray(body.issues) ? body.issues : [],
+    edited_entries: Array.isArray(body.edited_entries) ? body.edited_entries : [],
+    result_summary: body.result_summary && typeof body.result_summary === "object" ? body.result_summary : {},
+  };
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-runs/${encodeURIComponent(runId)}/feedback`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocRecentRuns(request, env) {
+  const body = await readJsonRequest(request);
+  if (!body) {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+
+  requireStaffPasswordValue(body.password, env);
+  const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.min(Number(body.limit), 100)) : 20;
+
+  const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-runs/recent?limit=${encodeURIComponent(String(limit))}`, {
+    method: "GET",
+    headers: {
+      "X-DTL-Staff-Password": tocBackendPassword(body.password, env),
+    },
+  });
+
+  return relayBackendResponse(backendResponse, request, env);
+}
+
+async function handleTocSource(request, env) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) {
+    throw new HttpError(401, "Missing token");
+  }
+
+  const payload = await verifyToken(token, env);
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.typ !== "toc-source" || !payload.exp || payload.exp < now) {
+    throw new HttpError(401, "Invalid or expired source token");
+  }
+
+  const response = await proxyDropboxPdf(request, env, payload.dbx);
+  response.headers.set("x-dtl-restriction-mode", "toc-source-pdf");
+  return response;
 }
 
 async function handleReaderSession(request, env) {
@@ -282,6 +505,29 @@ async function proxyChapterPdf(request, env, payload) {
   });
 }
 
+async function buildTocSourceUrl(request, env, dropboxRef) {
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signToken({
+    v: 1,
+    typ: "toc-source",
+    dbx: dropboxRef,
+    ss: 1,
+    se: 999999,
+    s: 1,
+    e: 999999,
+    d: 0,
+    c: "ToC source PDF",
+    iat: now,
+    exp: now + TOC_SOURCE_TOKEN_TTL_SECONDS,
+  }, env);
+
+  const sourceUrl = new URL(request.url);
+  sourceUrl.pathname = "/toc/source";
+  sourceUrl.search = "";
+  sourceUrl.searchParams.set("token", token);
+  return sourceUrl.toString();
+}
+
 async function fetchDropboxPdf(request, accessToken, dropboxRef) {
   const dropboxHeaders = new Headers({
     authorization: `Bearer ${accessToken}`,
@@ -296,6 +542,35 @@ async function fetchDropboxPdf(request, accessToken, dropboxRef) {
   return fetch(dropboxDownloadUrl(dropboxRef), {
     method: "POST",
     headers: dropboxHeaders,
+  });
+}
+
+async function readJsonRequest(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+function dropboxRefFromBody(body) {
+  const ref = String(body?.pdf_url || body?.pdfUrl || body?.dropbox || body?.dropboxUrl || body?.path || "").trim();
+  if (!ref) {
+    throw new HttpError(400, "Missing Dropbox file reference");
+  }
+  return ref;
+}
+
+function tocBackendPassword(staffPassword, env) {
+  return env.DTL_STAFF_PASSWORD || staffPassword;
+}
+
+async function relayBackendResponse(backendResponse, request, env) {
+  const headers = corsHeaders(request, env);
+  headers.set("content-type", backendResponse.headers.get("content-type") || "application/json");
+  return new Response(backendResponse.body, {
+    status: backendResponse.status,
+    headers,
   });
 }
 
