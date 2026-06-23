@@ -70,7 +70,7 @@ See https://github.com/adobe-type-tools/cmap-resources
   let preparingStartedAt = 0;
   let preparingDotsTimer = null;
   let preparingSlowHintTimer = null;
-  let preparingDotCount = 1;
+  let preparingDotCount = 0;
   let preparingFinishHooked = false;
   let preparingFinished = false;
   const readingGesturePromise = new Promise(function(resolve) {
@@ -113,7 +113,7 @@ See https://github.com/adobe-type-tools/cmap-resources
     if (!title) return;
     const dots = ".".repeat(preparingDotCount);
     title.textContent = "Preparing chapter" + dots;
-    preparingDotCount = preparingDotCount >= 3 ? 1 : preparingDotCount + 1;
+    preparingDotCount = preparingDotCount >= 3 ? 0 : preparingDotCount + 1;
   }
 
   window.DTL_showPreparingChapter = function() {
@@ -121,7 +121,7 @@ See https://github.com/adobe-type-tools/cmap-resources
     if (!gate) return;
 
     preparingStartedAt = Date.now();
-    preparingDotCount = 1;
+    preparingDotCount = 0;
     stopPreparingTimers();
 
     const card = gate.querySelector("#dtl-gate-card");
