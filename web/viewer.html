@@ -59,13 +59,144 @@ See https://github.com/adobe-type-tools/cmap-resources
 
   const SESSION_KEY = "dtlTrapArmed";
   const BUFFER_STATES = 200; // how many Back presses to absorb
+  const PREPARING_MIN_MS = 750;
+  const PREPARING_DOT_MS = 600;
+  const PREPARING_SLOW_HINT_MS = 4500;
 
   // Track if trap is armed THIS page load (not just sessionStorage)
   let trapArmedThisSession = false;
+  let readingGestureStarted = false;
+  let resolveReadingGesture = null;
+  let preparingStartedAt = 0;
+  let preparingDotsTimer = null;
+  let preparingSlowHintTimer = null;
+  let preparingDotCount = 1;
+  let preparingFinishHooked = false;
+  let preparingFinished = false;
+  const readingGesturePromise = new Promise(function(resolve) {
+    resolveReadingGesture = resolve;
+  });
 
   function isArmed() {
     return trapArmedThisSession;
   }
+
+  function wait(ms) {
+    return new Promise(function(resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  function resolveReadingGestureOnce() {
+    if (readingGestureStarted) return;
+    readingGestureStarted = true;
+    if (resolveReadingGesture) resolveReadingGesture();
+  }
+
+  window.DTL_waitForReadingGesture = function() {
+    return readingGestureStarted ? Promise.resolve() : readingGesturePromise;
+  };
+
+  function stopPreparingTimers() {
+    if (preparingDotsTimer) {
+      clearInterval(preparingDotsTimer);
+      preparingDotsTimer = null;
+    }
+    if (preparingSlowHintTimer) {
+      clearTimeout(preparingSlowHintTimer);
+      preparingSlowHintTimer = null;
+    }
+  }
+
+  function setPreparingTitle() {
+    const title = document.getElementById("dtl-gate-title");
+    if (!title) return;
+    const dots = ".".repeat(preparingDotCount);
+    title.textContent = "Preparing chapter" + dots;
+    preparingDotCount = preparingDotCount >= 3 ? 1 : preparingDotCount + 1;
+  }
+
+  window.DTL_showPreparingChapter = function() {
+    const gate = document.getElementById("dtl-gesture-gate");
+    if (!gate) return;
+
+    preparingStartedAt = Date.now();
+    preparingDotCount = 1;
+    stopPreparingTimers();
+
+    const card = gate.querySelector("#dtl-gate-card");
+    const message = gate.querySelector("#dtl-gate-message");
+    const startButton = gate.querySelector("#dtl-start-reading");
+    const note = gate.querySelector("#dtl-gate-note");
+    const firefoxNote = gate.querySelector("#dtl-gate-firefox-note");
+    const slowHint = gate.querySelector("#dtl-gate-slow-hint");
+
+    if (card) card.style.transform = "scale(1)";
+    if (message) {
+      message.textContent = "Your chapter will open as soon as it is ready.";
+      message.setAttribute("aria-live", "polite");
+    }
+    if (startButton) {
+      startButton.disabled = true;
+      startButton.style.display = "none";
+    }
+    if (note) note.style.display = "none";
+    if (firefoxNote) firefoxNote.style.display = "none";
+    if (slowHint) slowHint.style.display = "none";
+
+    setPreparingTitle();
+    preparingDotsTimer = setInterval(setPreparingTitle, PREPARING_DOT_MS);
+    preparingSlowHintTimer = setTimeout(function() {
+      if (slowHint) slowHint.style.display = "block";
+    }, PREPARING_SLOW_HINT_MS);
+  };
+
+  window.DTL_finishPreparingChapter = async function() {
+    const gate = document.getElementById("dtl-gesture-gate");
+    if (!gate) return;
+    if (preparingFinished) return;
+    preparingFinished = true;
+
+    const elapsed = preparingStartedAt ? Date.now() - preparingStartedAt : PREPARING_MIN_MS;
+    if (elapsed < PREPARING_MIN_MS) {
+      await wait(PREPARING_MIN_MS - elapsed);
+    }
+
+    stopPreparingTimers();
+    gate.style.opacity = "0";
+    const card = gate.querySelector("#dtl-gate-card");
+    if (card) card.style.transform = "scale(0.95)";
+
+    setTimeout(function() {
+      gate.remove();
+    }, 200);
+  };
+
+  window.DTL_armPreparingFinish = function() {
+    if (preparingFinishHooked) return;
+    preparingFinishHooked = true;
+
+    function finishOnce() {
+      if (window.DTL_finishPreparingChapter) {
+        window.DTL_finishPreparingChapter();
+      }
+    }
+
+    function attachWhenReady() {
+      const app = window.PDFViewerApplication;
+      const eventBus = app && app.eventBus;
+      if (!eventBus || !eventBus.on) {
+        setTimeout(attachWhenReady, 50);
+        return;
+      }
+
+      ["documentinit", "documentloaded", "pagerendered", "documenterror"].forEach(function(eventName) {
+        eventBus.on(eventName, finishOnce, { once: true });
+      });
+    }
+
+    attachWhenReady();
+  };
 
   // Clear stale sessionStorage on page load (history buffer doesn't persist)
   try {
@@ -231,12 +362,13 @@ See https://github.com/adobe-type-tools/cmap-resources
 
     gate.innerHTML =
       '<div style="background:white;max-width:460px;width:100%;border-radius:16px;padding:34px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);transform:scale(0.95);transition:transform 0.2s ease;" id="dtl-gate-card">' +
-        '<div style="font-size:52px;margin-bottom:14px;">📖</div>' +
-        '<div style="font-size:22px;font-weight:800;color:' + TEXT + ';margin-bottom:10px;">Start Reading</div>' +
-        '<div style="color:' + MUTED + ';line-height:1.6;margin-bottom:18px;">Click below to begin your secure viewing session.</div>' +
+        '<div id="dtl-gate-icon" style="font-size:52px;margin-bottom:14px;">📖</div>' +
+        '<div id="dtl-gate-title" aria-live="polite" style="font-size:22px;font-weight:800;color:' + TEXT + ';margin-bottom:10px;min-height:28px;">Start Reading</div>' +
+        '<div id="dtl-gate-message" style="color:' + MUTED + ';line-height:1.6;margin-bottom:18px;">Click below to begin your secure viewing session.</div>' +
         '<button id="dtl-start-reading" style="width:100%;padding:14px 18px;border:0;border-radius:10px;background:' + DTL_BLUE + ';color:white;font-weight:800;font-size:15px;cursor:pointer;transition:background 0.15s ease;">Begin Session</button>' +
-        '<div style="color:#9ca3af;font-size:12px;margin-top:12px;line-height:1.5;">Using the browser back button will end your session.</div>' +
-        '<div style="color:#9ca3af;font-size:11px;margin-top:8px;line-height:1.4;font-style:italic;">Firefox users: The back button may appear disabled for copyright protection.</div>' +
+        '<div id="dtl-gate-note" style="color:#9ca3af;font-size:12px;margin-top:12px;line-height:1.5;">Using the browser back button will end your session.</div>' +
+        '<div id="dtl-gate-slow-hint" style="display:none;color:#9ca3af;font-size:12px;margin-top:12px;line-height:1.5;">Large chapters may take a few moments.</div>' +
+        '<div id="dtl-gate-firefox-note" style="color:#9ca3af;font-size:11px;margin-top:8px;line-height:1.4;font-style:italic;">Firefox users: The back button may appear disabled for copyright protection.</div>' +
       "</div>";
 
     function attach() {
@@ -256,15 +388,8 @@ See https://github.com/adobe-type-tools/cmap-resources
           function () {
             // Arm the trap with this user gesture
             armTrapWithGesture();
-            
-            // Fade out
-            gate.style.opacity = "0";
-            const card = gate.querySelector("#dtl-gate-card");
-            if (card) card.style.transform = "scale(0.95)";
-            
-            setTimeout(function () {
-              gate.remove();
-            }, 200);
+            resolveReadingGestureOnce();
+            window.DTL_showPreparingChapter();
           },
           { once: true }
         );
@@ -1241,6 +1366,13 @@ See https://github.com/adobe-type-tools/cmap-resources
             }
 
             try {
+                if (window.DTL_waitForReadingGesture) {
+                    await window.DTL_waitForReadingGesture();
+                }
+                if (window.DTL_showPreparingChapter) {
+                    window.DTL_showPreparingChapter();
+                }
+
                 var sessionUrl = new URL('/reader-session', pdfUrl.origin);
                 sessionUrl.searchParams.set('token', token);
 
@@ -1255,8 +1387,14 @@ See https://github.com/adobe-type-tools/cmap-resources
                 }
 
                 pdfUrl.searchParams.set('session', data.session);
+                if (window.DTL_armPreparingFinish) {
+                    window.DTL_armPreparingFinish();
+                }
                 return pdfUrl.toString();
             } catch (e) {
+                if (window.DTL_finishPreparingChapter) {
+                    await window.DTL_finishPreparingChapter().catch(function() {});
+                }
                 showErrorPage('🔐', 'Reader Session Needed', e.message || 'Please return to the chapter list and open this chapter again.');
                 throw e;
             }
