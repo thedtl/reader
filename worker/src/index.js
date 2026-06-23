@@ -8,6 +8,7 @@ const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 const TOC_BACKEND_URL = "https://toc-service-4s2ll3m6pa-uc.a.run.app";
 const READER_SESSION_TTL_SECONDS = 10 * 60;
 const TOC_SOURCE_TOKEN_TTL_SECONDS = 3 * 60 * 60;
+const SLICER_SOURCE_TOKEN_TTL_SECONDS = 5 * 60;
 const CHAPTER_PDF_MAX_SOURCE_BYTES = 90 * 1024 * 1024;
 
 const JSON_HEADERS = {
@@ -100,6 +101,10 @@ export default {
 
       if (url.pathname === "/toc/source" && (request.method === "GET" || request.method === "HEAD")) {
         return await handleTocSource(request, env);
+      }
+
+      if (url.pathname === "/slice/source" && (request.method === "GET" || request.method === "HEAD")) {
+        return await handleSlicerSource(request, env);
       }
 
       if (url.pathname === "/reader-session" && request.method === "GET") {
@@ -379,6 +384,26 @@ async function handleTocSource(request, env) {
   return response;
 }
 
+async function handleSlicerSource(request, env) {
+  requireSlicerSecret(request, env);
+
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) {
+    throw new HttpError(401, "Missing token");
+  }
+
+  const payload = await verifyToken(token, env);
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.typ !== "slicer-source" || !payload.exp || payload.exp < now) {
+    throw new HttpError(401, "Invalid or expired source token");
+  }
+
+  const response = await proxyDropboxPdf(request, env, payload.dbx);
+  response.headers.set("x-dtl-restriction-mode", "slicer-source-pdf");
+  return response;
+}
+
 async function handleReaderSession(request, env) {
   const sourceError = validatePdfRequestSource(request, env);
   if (sourceError) {
@@ -473,6 +498,15 @@ async function proxyDropboxPdf(request, env, dropboxRef) {
 async function proxyChapterPdf(request, env, payload) {
   const accessToken = await getDropboxAccessToken(env);
   const downloadRef = await resolveDropboxRefForDownload(accessToken, payload.dbx);
+  const probedSourceLength = await probeDropboxDownloadBytes(request, accessToken, downloadRef);
+  if (probedSourceLength > CHAPTER_PDF_MAX_SOURCE_BYTES) {
+    console.warn("Chapter PDF source exceeds Worker extraction limit; using slicer", {
+      sourceBytes: probedSourceLength,
+      maxSourceBytes: CHAPTER_PDF_MAX_SOURCE_BYTES,
+    });
+    return proxyChapterPdfViaSlicer(request, env, payload, probedSourceLength);
+  }
+
   const dropboxResponse = await fetchDropboxPdf(new Request(request.url), accessToken, downloadRef);
 
   if (!dropboxResponse.ok) {
@@ -481,11 +515,11 @@ async function proxyChapterPdf(request, env, payload) {
 
   const sourceLength = Number(dropboxResponse.headers.get("content-length") || 0);
   if (sourceLength > CHAPTER_PDF_MAX_SOURCE_BYTES) {
-    console.warn("Chapter PDF source too large for Worker extraction; failing closed", {
+    console.warn("Chapter PDF source exceeds Worker extraction limit; using slicer", {
       sourceBytes: sourceLength,
       maxSourceBytes: CHAPTER_PDF_MAX_SOURCE_BYTES,
     });
-    throw new HttpError(413, "This PDF is too large for chapter-only extraction in the Worker.");
+    return proxyChapterPdfViaSlicer(request, env, payload, sourceLength);
   }
 
   let sourceBytes;
@@ -493,10 +527,10 @@ async function proxyChapterPdf(request, env, payload) {
     sourceBytes = await dropboxResponse.arrayBuffer();
   } catch (error) {
     if (isMemoryLimitError(error)) {
-      console.warn("Chapter PDF extraction hit Worker memory limit; failing closed", {
+      console.warn("Chapter PDF extraction hit Worker memory limit; using slicer", {
         message: error.message || "Memory limit exceeded",
       });
-      throw new HttpError(413, "This PDF is too large for chapter-only extraction in the Worker.");
+      return proxyChapterPdfViaSlicer(request, env, payload, sourceLength);
     }
     throw error;
   }
@@ -536,6 +570,58 @@ async function proxyChapterPdf(request, env, payload) {
   });
 }
 
+async function proxyChapterPdfViaSlicer(request, env, payload, sourceBytes = 0) {
+  requireEnv(env, "SLICER_SERVICE_URL");
+  requireEnv(env, "SLICER_SHARED_SECRET");
+
+  const sourceUrl = await buildSlicerSourceUrl(request, env, payload.dbx);
+  const slicerResponse = await fetch(`${normalizedServiceUrl(env.SLICER_SERVICE_URL)}/slice`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-DTL-Slicer-Secret": env.SLICER_SHARED_SECRET,
+    },
+    body: JSON.stringify({
+      source_url: sourceUrl,
+      start_page: payload.ss,
+      end_page: payload.se,
+      title: payload.c || "Chapter",
+    }),
+  });
+
+  if (!slicerResponse.ok) {
+    const details = await slicerResponse.text().catch(() => "");
+    const safeDetails = summarizeSlicerError(details);
+    console.warn("Chapter slicer failed; refusing to stream source PDF", {
+      status: slicerResponse.status,
+      sourceBytes,
+      details: safeDetails,
+    });
+    throw new HttpError(
+      slicerResponse.status === 413 || slicerResponse.status === 416 ? slicerResponse.status : 502,
+      `Chapter slicer failed: ${safeDetails || "No details"}`,
+    );
+  }
+
+  const headers = corsHeaders(request, env);
+  headers.set("content-type", "application/pdf");
+  headers.set("cache-control", "private, no-store");
+  headers.set("accept-ranges", "none");
+  headers.set("x-dtl-restriction-mode", "chapter-only-pdf");
+  headers.set("x-dtl-reader-session", "required");
+  headers.set("x-dtl-slicer-mode", slicerResponse.headers.get("x-dtl-slicer-mode") || "cloud-run");
+  copyHeader(slicerResponse.headers, headers, "content-length");
+  copyHeader(slicerResponse.headers, headers, "x-dtl-source-pages");
+  copyHeader(slicerResponse.headers, headers, "x-dtl-chapter-pages");
+  copyHeader(slicerResponse.headers, headers, "x-dtl-chapter-page-count");
+  copyHeader(slicerResponse.headers, headers, "x-dtl-slicer-ms");
+
+  return new Response(request.method === "HEAD" ? null : slicerResponse.body, {
+    status: 200,
+    headers,
+  });
+}
+
 async function detectChapterDelivery(request, env, payload) {
   const delivery = {
     mode: "chapter-only-pdf",
@@ -550,11 +636,12 @@ async function detectChapterDelivery(request, env, payload) {
     if (sourceBytes > CHAPTER_PDF_MAX_SOURCE_BYTES) {
       return {
         ...delivery,
+        extraction: hasSlicerConfig(env) ? "cloud-run-slicer" : "worker-fail-closed",
         reason: "source_too_large",
         sourceBytes,
       };
     }
-    return { ...delivery, sourceBytes };
+    return { ...delivery, extraction: "worker-pdf-lib", sourceBytes };
   } catch (error) {
     console.warn("Chapter delivery probe failed; defaulting to chapter-only PDF", {
       message: error.message || "Unknown delivery probe error",
@@ -566,6 +653,10 @@ async function detectChapterDelivery(request, env, payload) {
 async function probeDropboxSourceBytes(request, env, dropboxRef) {
   const accessToken = await getDropboxAccessToken(env);
   const downloadRef = await resolveDropboxRefForDownload(accessToken, dropboxRef);
+  return probeDropboxDownloadBytes(request, accessToken, downloadRef);
+}
+
+async function probeDropboxDownloadBytes(request, accessToken, downloadRef) {
   const headers = new Headers();
   headers.set("range", "bytes=0-0");
   const probeRequest = new Request(request.url, {
@@ -607,6 +698,29 @@ async function buildTocSourceUrl(request, env, dropboxRef) {
 
   const sourceUrl = new URL(request.url);
   sourceUrl.pathname = "/toc/source";
+  sourceUrl.search = "";
+  sourceUrl.searchParams.set("token", token);
+  return sourceUrl.toString();
+}
+
+async function buildSlicerSourceUrl(request, env, dropboxRef) {
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signToken({
+    v: 1,
+    typ: "slicer-source",
+    dbx: dropboxRef,
+    ss: 1,
+    se: 999999,
+    s: 1,
+    e: 999999,
+    d: 0,
+    c: "Slicer source PDF",
+    iat: now,
+    exp: now + SLICER_SOURCE_TOKEN_TTL_SECONDS,
+  }, env);
+
+  const sourceUrl = new URL(request.url);
+  sourceUrl.pathname = "/slice/source";
   sourceUrl.search = "";
   sourceUrl.searchParams.set("token", token);
   return sourceUrl.toString();
@@ -864,6 +978,13 @@ function dropboxErrorHint(details) {
   return "Use the Dropbox error details to decide the next setup step.";
 }
 
+function summarizeSlicerError(details) {
+  return String(details || "")
+    .replace(/https?:\/\/[^\s"']*/gi, "[url]")
+    .replace(/[A-Za-z0-9_-]{40,}/g, "[token]")
+    .slice(0, 500);
+}
+
 function parsePositiveInteger(value, label) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 1) {
@@ -939,10 +1060,41 @@ function requireStaffPasswordValue(password, env) {
   }
 }
 
+function requireSlicerSecret(request, env) {
+  requireEnv(env, "SLICER_SHARED_SECRET");
+  const provided = request.headers.get("x-dtl-slicer-secret") || "";
+  if (!constantTimeStringEqual(provided, env.SLICER_SHARED_SECRET)) {
+    throw new HttpError(401, "Unauthorized");
+  }
+}
+
 function requireEnv(env, key) {
   if (!env[key]) {
     throw new HttpError(500, `Missing ${key} secret`);
   }
+}
+
+function hasSlicerConfig(env) {
+  return Boolean(env.SLICER_SERVICE_URL && env.SLICER_SHARED_SECRET);
+}
+
+function normalizedServiceUrl(value) {
+  const url = String(value || "").trim().replace(/\/+$/, "");
+  if (!/^https:\/\//i.test(url)) {
+    throw new HttpError(500, "SLICER_SERVICE_URL must be an HTTPS URL");
+  }
+  return url;
+}
+
+function constantTimeStringEqual(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  const length = Math.max(a.length, b.length);
+  let mismatch = a.length === b.length ? 0 : 1;
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
+  }
+  return mismatch === 0;
 }
 
 async function signToken(payload, env) {
@@ -1172,7 +1324,7 @@ function corsHeaders(request, env) {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,HEAD,POST,OPTIONS",
     "access-control-allow-headers": "content-type,range",
-    "access-control-expose-headers": "accept-ranges,content-length,content-range,content-type,etag,last-modified,x-dtl-chapter-pages,x-dtl-fallback-reason,x-dtl-reader-session,x-dtl-restriction-mode",
+    "access-control-expose-headers": "accept-ranges,content-length,content-range,content-type,etag,last-modified,x-dtl-chapter-page-count,x-dtl-chapter-pages,x-dtl-fallback-reason,x-dtl-reader-session,x-dtl-restriction-mode,x-dtl-slicer-mode,x-dtl-slicer-ms,x-dtl-source-pages",
     vary: "Origin",
   });
 }
