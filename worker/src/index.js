@@ -764,10 +764,37 @@ function tocBackendPassword(staffPassword, env) {
 }
 
 async function relayBackendResponse(backendResponse, request, env) {
+  const text = await backendResponse.text();
+  const backendStatus = backendResponse.status || 502;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    const retryable = backendStatus === 408 || backendStatus === 429 || backendStatus >= 500;
+    return json(
+      {
+        error: retryable
+          ? "ToC backend is temporarily unavailable. Retrying may work."
+          : "ToC backend returned an unexpected response.",
+        retryable,
+        backend_status: backendStatus,
+      },
+      request,
+      env,
+      backendStatus,
+    );
+  }
+
   const headers = corsHeaders(request, env);
-  headers.set("content-type", backendResponse.headers.get("content-type") || "application/json");
-  return new Response(backendResponse.body, {
-    status: backendResponse.status,
+  for (const [key, value] of Object.entries(JSON_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(JSON.stringify(parsed, null, 2), {
+    status: backendStatus,
     headers,
   });
 }
