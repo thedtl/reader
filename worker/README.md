@@ -94,6 +94,14 @@ text completed in 5.545 seconds (2,306 input and 582 output tokens, including 39
 reasoning tokens). This verifies the API/response handoff, not image accuracy;
 the original scanner's citation rules and heuristic fallback remain unchanged.
 
+Released 2026-11-05: source `393f6ee`, Worker version
+`27d562e2-dc7a-4a2c-be7a-5cda240b249f` at 100%. The existing bookmarker key was
+copied directly into an encrypted `OPENAI_API_KEY` binding; no new credential,
+account, GCP secret or IAM grant. Deployed code matches the tested bundle.
+Health, CORS and unauthorized metadata/reader requests pass. Existing runtime,
+bindings and ToC/reader routes are preserved; the old Gemini key is unused.
+No Cloud Run revision, stable-service traffic or PDF processing was touched.
+
 ## Deploy later
 
 Do not deploy until the Dropbox app and secrets are ready.
