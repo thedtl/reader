@@ -14,6 +14,7 @@ Set these as Worker secrets, not as committed files:
 - `DROPBOX_APP_SECRET`: Dropbox app secret.
 - `TOKEN_SECRET`: long random string used to sign patron links.
 - `STAFF_PASSWORD`: staff-only password for link generation routes.
+- `OPENAI_API_KEY`: server-only key for the metadata scanner's Luna requests.
 - `DTL_STAFF_PASSWORD`: optional separate backend staff password for ToC
   Creator routes. When omitted, the staff-entered password is forwarded to the
   ToC backend.
@@ -34,6 +35,11 @@ preferred because Dropbox access tokens expire.
 - `GET /sign?password=...&dropbox=...&start=1&end=10&chapter=...`
 - `POST /batch-sign`
 - `GET /analyze?password=...&dropbox=...`
+- `POST /suggest-heading`: staff-only metadata scan using OpenAI Responses,
+  `gpt-5.6-luna`, high reasoning and image detail, up to 12,000 output tokens,
+  `store: false`, and a 300-second request timeout. Its existing citation
+  normalization, response shape and text heuristic fallback are unchanged.
+  `GEMINI_API_KEY` and `GEMINI_MODEL` are no longer used by this route.
 - `POST /toc/health`
 - `POST /toc/analyze`
 - `POST /toc/metadata`
@@ -74,8 +80,19 @@ numbers.
 ## Local check
 
 ```sh
-node --check src/index.js
+npm run check
+npm test
 ```
+
+The Luna migration also reconciles seven pre-existing ToC payload fields from
+deployed Worker version `e1ef4c33-5cb3-4858-b0ab-ee4b22dd9ca0` (2026-07-18).
+They were absent from repository HEAD `5dbedd9` and are retained here to avoid
+reverting deployed forwarding behavior. No ToC endpoint or reader contract changes.
+All 26 metadata tests and syntax checks pass. The rebuilt routing region matches
+the deployed version byte-for-byte. One live Luna API check on supplied title-page
+text completed in 5.545 seconds (2,306 input and 582 output tokens, including 391
+reasoning tokens). This verifies the API/response handoff, not image accuracy;
+the original scanner's citation rules and heuristic fallback remain unchanged.
 
 ## Deploy later
 

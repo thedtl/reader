@@ -284,6 +284,7 @@ async function handleTocJobStart(request, env) {
     },
     body: JSON.stringify({
       pdf_url: sourceUrl,
+      original_source_url: String(body.original_source_url || "").trim(),
       max_pages: maxPages,
       skip_bookmarks: skipBookmarks,
       scan_from_end: scanFromEnd,
@@ -333,6 +334,12 @@ async function handleTocRunFeedback(request, env) {
     issues: Array.isArray(body.issues) ? body.issues : [],
     edited_entries: Array.isArray(body.edited_entries) ? body.edited_entries : [],
     result_summary: body.result_summary && typeof body.result_summary === "object" ? body.result_summary : {},
+    finalization_id: String(body.finalization_id || "").trim(),
+    finalized_at: String(body.finalized_at || "").trim(),
+    original_entries: Array.isArray(body.original_entries) ? body.original_entries : [],
+    original_bookmark_sha256: String(body.original_bookmark_sha256 || "").trim(),
+    frontend_version: String(body.frontend_version || "").trim(),
+    pdf_generation: body.pdf_generation && typeof body.pdf_generation === "object" ? body.pdf_generation : {},
   };
 
   const backendResponse = await fetch(`${TOC_BACKEND_URL}/toc-runs/${encodeURIComponent(runId)}/feedback`, {
